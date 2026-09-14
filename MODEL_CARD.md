@@ -7,7 +7,7 @@ date_published: "2023-11-18"
 date_published_source: "Hugging Face Hub repository creation date of the exact hosted checkpoint (`createdAt`, https://huggingface.co/api/models/microsoft/table-transformer-structure-recognition-v1.1-all); the v1.1 models accompany the 2023-03 paper arXiv:2303.00716, but this Transformers-format checkpoint is the 2023-11 Hub release"
 ---
 
-# Table Transformer Structure Recognition v1.1-all (DIMER package v0.1.0) — Table Structure Recognition (Inference)
+# Table Transformer Structure Recognition v1.1-all — Table Structure Recognition (Inference)
 
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-microsoft%2Ftable--transformer--structure--recognition--v1.1--all-ffcc4d?style=flat)](https://huggingface.co/microsoft/table-transformer-structure-recognition-v1.1-all)
 [![Upstream GitHub](https://img.shields.io/badge/Upstream%20GitHub-microsoft%2Ftable--transformer-181717?style=flat&logo=github&logoColor=white)](https://github.com/microsoft/table-transformer)
