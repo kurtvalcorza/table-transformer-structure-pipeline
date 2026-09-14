@@ -2,6 +2,7 @@
 license: mit
 model_card_spec: "1.1"
 pipeline_tag: object-detection
+task: "Object Detection - Table Structure Recognition"
 base_model: microsoft/table-transformer-structure-recognition-v1.1-all
 date_published: "2023-11-18"
 date_published_source: "Hugging Face Hub repository creation date of the exact hosted checkpoint (`createdAt`, https://huggingface.co/api/models/microsoft/table-transformer-structure-recognition-v1.1-all); the v1.1 models accompany the 2023-03 paper arXiv:2303.00716, but this Transformers-format checkpoint is the 2023-11 Hub release"
