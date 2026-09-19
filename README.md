@@ -65,7 +65,7 @@ weights/table-transformer-structure-v1.1-all/
 
 ## Release status
 
-**Candidate.** Static/unit checks — including the standalone generator parity checks (`tools/build_notebook.py --check`, `tests/test_notebook_parity.py`) — do not constitute clean-runtime notebook evidence. One local fresh-kernel execution is recorded in `docs/release-verification.md` as pre-flight; the supported-runtime run is pending. Complete that record against the exact release revision before calling the notebook release-grade.
+**Release-grade** — the `E2E` notebook blob `4686cf7d` (committed at `4c56fa0`) executed top-to-bottom in a clean Kaggle Tesla T4 runtime on 2026-09-19 (12/12 ok (1 restart after install cell), 553.1 s); the record is in `docs/release-verification.md` and `STATUS.md`. Static and unit checks — including the standalone generator parity checks — are necessary but were never the evidence; the hosted run is. A later change to the carried modules or the notebook returns the status to Candidate until re-verified.
 
 ## Documentation
 
