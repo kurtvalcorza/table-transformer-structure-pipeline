@@ -95,7 +95,7 @@ Before changing the registry status from `Candidate` to `Release-grade`:
      `microsoft/table-transformer-structure-recognition-v1.1-all` at the immutable revision, and `verify_snapshot`
      returning its dict (4 files); `from_pretrained(weights_dir=WEIGHTS_DIR)` loading from the verified directory;
    - Section 4: `load_corpus` decoding the 94 embedded tables after their 94 digest checks, and the seeded draw of
-     10 / 7 / 29 whole papers into 21 / 23 / 50 test, validation and training tables (146 / 172 / 864 objects) with
+     10 / 7 / 29 whole papers into 21 / 23 / 50 test, validation and training tables (300 / 351 / 636 objects) with
      `check_split_disjoint` reporting no shared table and no shared paper, `split_summary` printed and the three
      dataset digests `__DIG_TRAIN__` / `__DIG_VAL__` / `__DIG_TEST__`; `outputs/…_train.csv` written; the four
      dataset refusal probes each raising `ValueError`;
@@ -170,7 +170,7 @@ catches defects but is **not** a supported runtime under REL1/REL10, and it ran 
 115 MB Hub fetch has not been exercised by this notebook end to end; the earlier `TASK-INFERENCE` Kaggle CPU run did
 exercise the Hub fetch and digest check of the same snapshot. The registry status remains **Candidate** until a Colab
 or fresh-container run of the exact `E2E` release revision is recorded above. Facts a reviewer should weigh: the CUDA
-path has not been executed; every metric is one seeded split of 21 tables (146 objects) with no dispersion estimate;
+path has not been executed; every metric is one seeded split of 21 tables (300 objects) with no dispersion estimate;
 the reference boxes are a stated derivation from SciTSR's cells, so the metrics measure agreement with that
 convention as much as recognition; the validation set loss selected the unfreeze while the untouched checkpoint kept
 the higher mAP@0.5 on the test split (88.7 % against 86.8 %), and the notebook reports both.

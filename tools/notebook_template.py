@@ -365,7 +365,7 @@ TEMPLATE = {
                 "boxes onto the derived convention (mAP +8.7 points over the checkpoint) and lost AP@0.5 on spanning cells "
                 "(74.8 % → 62.6 %, from 56 training instances) and grid agreement at 0.5 (85.7 % → 76.2 %). The cell asserts "
                 "the selected model beats the grid prior on mAP@0.5; it does **not** assert a gain over the heads or the "
-                "checkpoint, because that is the question, not the answer. 21 tables with 146 objects from one seeded split "
+                "checkpoint, because that is the question, not the answer. 21 tables with 300 objects from one seeded split "
                 "of one corpus give no dispersion estimate — one table is about five points of grid agreement."
             ),
             "code": (
@@ -507,7 +507,7 @@ TEMPLATE = {
         "derived convention, preferred the trained heads to the checkpoint's untouched rows by a wide margin (0.295 vs 0.771) "
         "while the checkpoint kept the higher mAP@0.5 on the test split: the selection criterion and the headline metric "
         "disagree, and the notebook reports both rather than hiding one.\n\n"
-        "The test split is 21 tables with 146 structure objects from one seeded split of one small corpus with no dispersion "
+        "The test split is 21 tables with 300 structure objects from one seeded split of one small corpus with no dispersion "
         "estimate — one table is about five points of grid agreement, so a few points of AP is noise. The reference boxes are "
         "a derivation from SciTSR's cells (rows tiling an ink-bounded table at the mid-gaps), stated in full in the carried "
         "`sample_data` module; a metric against them measures agreement with that convention as much as recognition, which "
