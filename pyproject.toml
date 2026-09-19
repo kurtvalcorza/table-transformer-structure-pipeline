@@ -31,6 +31,7 @@ addopts = "-q"
 line-length = 110
 target-version = "py312"
 src = ["src", "tests"]
+extend-exclude = ["tutorials", "src/table_transformer_structure_pipeline/sample_data.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
