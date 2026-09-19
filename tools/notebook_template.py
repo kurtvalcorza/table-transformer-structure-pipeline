@@ -7,7 +7,8 @@ structure snapshot is digest-verified and loaded, the embedded public-domain Sci
 scientific tables with structure boxes derived from the dataset's cells) is decoded, validated and split by
 paper, the inference contract is exercised on a real table with reference boxes (a `sample-sanity` report per
 label), a grid prior and the untouched checkpoint are scored on the test split, restricted heads copied from
-the checkpoint are scored untouched (the zero-shot policy), trained on the frozen decoder features (the
+the checkpoint are scored untrained (the copied-head zero-shot policy — a restricted five-way softmax over the
+checkpoint's rows, not the untouched checkpoint), trained on the frozen decoder features (the
 frozen policy) and then with the last decoder layers (the unfrozen policy), the policy is selected on
 validation, the held-out split is scored by per-label AP and grid agreement, and the adapter is exported and
 reloaded.
@@ -28,8 +29,8 @@ TEMPLATE = {
         "50 / 23 / 21 training, validation and test tables by a seeded split of whole papers, runs one test table through the "
         "inference contract with an input manifest, a rejection probe and a per-label `sample-sanity` evaluation report "
         "against its reference boxes, scores a grid prior and the untouched checkpoint on the test split (the **zero-shot "
-        "row**), copies the checkpoint's own rows for the four scored labels into restricted heads and scores them untouched "
-        "(the **zero-shot policy**, epoch 0), trains them on the frozen DETR decoder features (the **frozen policy**) and then "
+        "row**), copies the checkpoint's own rows for the four scored labels into restricted heads and scores them untrained "
+        "(the **copied-head zero-shot policy**, epoch 0 — a restricted five-way softmax over the checkpoint's own rows, not the untouched seven-way checkpoint), trains them on the frozen DETR decoder features (the **frozen policy**) and then "
         "the last two decoder layers with them (the **unfrozen policy**), selects among the three by validation DETR loss, "
         "scores the held-out split by per-label AP@0.5 / AP@0.75 / AP, their class means and grid agreement with the selected "
         "model, renders structure before and after, exports the trained tensors as safetensors with a manifest, and reloads "
@@ -41,8 +42,9 @@ TEMPLATE = {
     "byod": (
         "After the tutorial workflow completes, set `USE_BYOD = True` in Section 4 and re-run from that cell to supply your own "
         "structure-labelled table crops as a `.zip` holding `structure.csv` (columns `id`, `file`, `label`, `x_min`, `y_min`, "
-        "`x_max`, `y_max`, optional `group`; one row per structure box, pixel coordinates, labels among `table`, "
-        "`table column`, `table row`, `table spanning cell`) beside the image files — images are decoded from the archive, "
+        "`x_max`, `y_max`, `group`; one row per structure box, pixel coordinates, labels among `table`, `table column`, "
+        "`table row`, `table spanning cell`; `group` — the paper, document or source — must be non-empty on every row, and "
+        "rows of one `id` must agree on `file` and `group`, or the loader refuses the set) beside the image files — images are decoded from the archive, "
         "never extracted to disk. They pass through the same validation, seeded group-disjoint split, prior, zero-shot "
         "scoring, three-policy ladder and selection, held-out evaluation, structure rendering, artifact export and "
         "reload-parity cells as the SciTSR-PD sample. The expected schema and the ceilings are stated in the Prerequisites "
@@ -88,7 +90,7 @@ TEMPLATE = {
         "`evaluation_report` helpers; `evaluation_report` becomes `sample-sanity` only when a caller supplies reference "
         "boxes per label — which this notebook, unlike its inference-only predecessor, does, on a real table.\n\n"
         "What this notebook adds to inference is **supervised adaptation of the structure vocabulary to a new table corpus "
-        "and box convention, under an explicit zero-shot / frozen / unfrozen policy ladder**. The dataset is real and "
+        "and box convention, under an explicit copied-head zero-shot / frozen / unfrozen policy ladder**. The dataset is real and "
         "public domain: 94 scientific tables from SciTSR-PD (arXiv LaTeX tables rendered at 150 DPI whose source papers "
         "carry a CC0 or public-domain dedication), embedded in the carried `sample_data` module with structure boxes "
         "**derived once** from the dataset's text chunks and logical cells — rows and columns tiling an ink-bounded table "
@@ -99,11 +101,11 @@ TEMPLATE = {
         "every image ranked by score), their class means, the recall and precision per label at the pipeline's operating "
         "threshold and **grid agreement** (how often the surviving row and column counts both match the reference); a "
         "**grid prior** (the training split's mean row and column counts laid out uniformly) and the **untouched checkpoint** "
-        "frame the numbers. The **zero-shot policy** copies the checkpoint's own rows for the four labels into restricted "
+        "frame the numbers. The **copied-head zero-shot policy** copies the checkpoint's own rows for the four labels into restricted "
         "heads and scores them untrained; the **frozen policy** trains those heads on the frozen decoder features under the "
         "DETR set loss (exact Hungarian matching, cross-entropy with a 0.1 no-object weight, L1 and GIoU — implemented in the "
         "carried module, no external matcher); the **unfrozen policy** continues by training the last decoder layers with "
-        "them end to end, and the epoch with the lowest validation loss — which may be the untouched checkpoint — is kept. "
+        "them end to end, and the epoch with the lowest validation loss — which may be the untrained copied heads — is kept. The copied heads run a five-way softmax over the checkpoint's rows, so they are a restricted copy and not the untouched seven-way checkpoint: that checkpoint is scored beside the ladder by `evaluate_zero_shot` and is never selected by it, and selecting epoch 0 still exports the restricted heads. "
         "The checkpoint's own heads and `recognize` are never trained or exported. This corpus is close to the PubTables-1M "
         "renders the model was trained on, so the adaptation question is not whether the model can learn the task but "
         "whether adapting to a new corpus and a new box convention buys anything the checkpoint does not already give — "
@@ -117,7 +119,7 @@ TEMPLATE = {
         "per-label AP@0.5 / AP@0.75 / AP, class means and grid agreement beside a grid prior and the zero-shot checkpoint "
         "and understand why a score threshold is an operating point, not part of AP; train restricted heads on frozen "
         "features and a bounded decoder unfreeze with explicit hyperparameters and validation-based selection among three "
-        "policies, one of which is the checkpoint itself; evaluate on an independent paper-disjoint test split; compare "
+        "policies, one of which is the checkpoint's own rows under a restricted softmax; evaluate on an independent paper-disjoint test split; compare "
         "structure before and after; and export a safetensors adapter (heads plus any trained decoder layers) that reloads "
         "against the pinned base with verified parity."
     ),
@@ -131,7 +133,7 @@ TEMPLATE = {
     "prerequisites": [
         "- **Runtime:** a fresh supported runtime (Google Colab or Jupyter, Python 3.12). The default path runs on CPU and uses CUDA automatically when available; float32 on both. The build record measured about 0.1 s per table to run the decoder on CPU (2 s for the 21-table zero-shot pass), about 45 s for the restricted heads including feature extraction and two validation passes, and about 15 s per unfreeze epoch over 50 tables plus a 23-table validation pass. The pinned `torch==2.14.0` install and the 115 MB checkpoint are the large downloads of the run; the tables travel inside the notebook.",
         "- **Knowledge:** basic Python and PIL; what a bounding box in xyxy pixel coordinates is; what intersection-over-union and average precision measure and why AP does not depend on a score threshold; what a Hungarian (one-to-one) matching between predictions and references is; what validation-based selection among policies means; that a table's cell grid is the intersection of its row and column boxes.",
-        "- **Data contract:** records are `{{id, image, objects}}` — a PIL image (or a path to one) with sides 16..4,096 px and a list of 1..125 `{{label, box}}` structure objects with `box` = `[x_min, y_min, x_max, y_max]` pixels inside the image (sides of at least 2 px), `label` among `table` (at most one), `table column`, `table row` (at least one each) and `table spanning cell`, ids matching `[A-Za-z0-9_.:-]{{1,64}}` and unique; a training set needs 8..2,000 records; tables are de-duplicated by decoded-pixel digest and split by `group` / `paper_id` so one paper never straddles splits. BYOD accepts a `.zip` (or a directory) holding `structure.csv` and the image files.",
+        "- **Data contract:** records are `{{id, image, objects}}` — a PIL image (or a path to one) with sides 16..4,096 px and a list of 1..125 `{{label, box}}` structure objects with `box` = `[x_min, y_min, x_max, y_max]` pixels inside the image (sides of at least 2 px), `label` among `table` (at most one), `table column`, `table row` (at least one each) and `table spanning cell`, ids matching `[A-Za-z0-9_.:-]{{1,64}}` and unique; a training set needs 8..2,000 records; tables are de-duplicated by decoded-pixel digest and split by `group` / `paper_id` so one paper never straddles splits. BYOD accepts a `.zip` (or a directory) holding `structure.csv` and the image files, and requires a non-empty `group` on every row — the notebook's automatic split is group-disjoint only because the loader refuses ungrouped rows (`load_byod_dataset(..., require_group=False)` is the explicit opt-out, without that guarantee).",
         "- **Validation is structural, not semantic:** nothing checks that a box is a row or a column — a mislabelled set is trained on without complaint; the four labels are the checkpoint's own, so a BYOD set must use exactly those strings.",
         "- **Privacy:** Do not upload confidential or restricted data to a hosted runtime unless you are authorized to process it there. The default path uploads nothing and downloads nothing beyond the Hub snapshot.",
         "- **External access (data):** none beyond the Hub. The 94 tables are embedded in the carried `sample_data` module as base64 PNGs (each verified against its recorded byte size and SHA-256 before it is decoded); they come from `bevaya/SciTSR-pd` on the Hugging Face Hub (commit `dae336ef`, two parquet files pinned by SHA-256 in `SOURCE_FILES`), whose source papers carry a CC0 or public-domain dedication, credited in the References.",
@@ -284,13 +286,13 @@ TEMPLATE = {
                 "are usually about this shape\" alone buys. The **zero-shot checkpoint** (`evaluate_zero_shot`) scores every "
                 "query by its own softmax probability for each of the four labels, headers neither scored nor penalised. "
                 "The **frozen policy** is `adapt` with `trainable_layers=0`: it first copies the checkpoint's own rows for the "
-                "four labels and no-object into a restricted head and copies the box head, scores them untouched on validation "
-                "(epoch 0, the **zero-shot policy**), then trains both on the cached decoder features of the 50 training "
+                "four labels and no-object into a restricted head and copies the box head, scores them untrained on validation "
+                "(epoch 0, the **copied-head zero-shot policy** — its softmax runs over five logits, so its numbers differ from the untouched seven-way checkpoint scored just above), then trains both on the cached decoder features of the 50 training "
                 "tables under the DETR set loss for `HEAD_STEPS` full-batch steps (epoch 1) and keeps whichever has the lower "
                 "validation loss, scored on the test split by `evaluate`. The build record: prior mAP@0.5 38.7 % (grid "
                 "agreement 4.8 %), zero-shot 88.7 % / AP@0.75 73.4 % / mAP 63.5 % (columns 100 %, rows 86.5 %, spanning cells "
                 "74.8 %; grid agreement 85.7 %), and the trained heads 85.2 % / 76.1 % / 71.5 % (validation loss 0.295 against "
-                "0.771 for the untouched rows, so the frozen policy was kept over the zero-shot one) — the checkpoint already "
+                "0.771 for the copied rows, so the frozen policy was kept over the copied-head zero-shot one) — the checkpoint already "
                 "recognises the structure, and training the heads mostly moves the boxes onto the derived convention (mean "
                 "best IoU 0.81 → 0.91) at a cost on spanning cells. About a minute on CPU."
             ),
@@ -316,7 +318,7 @@ TEMPLATE = {
         {
             "md": (
                 "## 7. The unfrozen policy: a bounded decoder unfreeze selected against the heads and the checkpoint\n\n"
-                "`adapt` with `TRAINABLE_LAYERS` > 0 repeats epochs 0 and 1 of the ladder (the untouched rows, then the "
+                "`adapt` with `TRAINABLE_LAYERS` > 0 repeats epochs 0 and 1 of the ladder (the copied rows untrained, then the "
                 "restricted heads on the frozen features), then unfreezes the last `TRAINABLE_LAYERS` decoder layers — two "
                 "by default, 3,157,504 of 28,828,619 parameters; the backbone, the input projection, the encoder, the query "
                 "embeddings, the earlier decoder layers and the checkpoint's own heads stay frozen — and trains them with "
@@ -327,7 +329,7 @@ TEMPLATE = {
                 "terms. Every epoch is scored on validation, and the epoch with the **lowest validation loss** is kept — the "
                 "checkpoint's own rows (epoch 0) and the heads alone (epoch 1) compete on equal terms, so the selected policy "
                 "can be any of the three. mAP@0.5, mAP and grid agreement are printed beside the loss at every epoch.\n\n"
-                "Watch the validation loss: in the build record it fell from 0.771 (untouched rows) to 0.295 (heads), then "
+                "Watch the validation loss: in the build record it fell from 0.771 (copied rows, untrained) to 0.295 (heads), then "
                 "0.310 → 0.282 → 0.286 over three unfreeze epochs at 1e-4, so the second unfreeze epoch was selected; at "
                 "3e-4 the unfreeze never beat the heads (0.390 → 0.356 → 0.347) and the frozen policy was kept; with all six decoder layers unfrozen it reached 0.288 at the second unfreeze epoch (selected) for 85.6 % mAP@0.5 / 73.5 % mAP on the test split and a 38 MB adapter — no better than two layers. "
                 "Note that DETR's train-mode dropout makes the per-table training loss sit above the full-batch head loss."
@@ -358,7 +360,7 @@ TEMPLATE = {
                 "or validation splits. The selected model is scored exactly as the frozen policy was in Section 6, and the "
                 "four rows are put side by side: grid prior, zero-shot checkpoint, frozen policy, selected policy — per label "
                 "and as class means, with grid agreement and the set loss. Read the policy first: if validation kept the "
-                "heads, the last two rows are the same model; if it kept the untouched rows, the selected row is the "
+                "heads, the last two rows are the same model; if it kept the untrained copied rows, the selected row is the "
                 "checkpoint under a restricted softmax; if it chose the unfreeze, the delta is what the unfreeze bought on "
                 "21 tables — the build record: 86.8 % mAP@0.5 / 77.5 % AP@0.75 / 72.2 % mAP against 85.2 % / 76.1 % / 71.5 % "
                 "for the heads, and against 88.7 % / 73.4 % / 63.5 % for the untouched checkpoint: adaptation tightened the "
@@ -504,7 +506,7 @@ TEMPLATE = {
         "question a caller asks (grid agreement at 0.5: 85.7 % → 76.2 %). The ladder ran all three policies end to end on a "
         "real structure-labelled corpus with the set loss and an exact Hungarian matcher implemented in the open, chose "
         "among them on validation rather than by assumption — and the validation loss, which is a set loss under the "
-        "derived convention, preferred the trained heads to the checkpoint's untouched rows by a wide margin (0.295 vs 0.771) "
+        "derived convention, preferred the trained heads to the copied checkpoint rows by a wide margin (0.295 vs 0.771) "
         "while the checkpoint kept the higher mAP@0.5 on the test split: the selection criterion and the headline metric "
         "disagree, and the notebook reports both rather than hiding one.\n\n"
         "The test split is 21 tables with 300 structure objects from one seeded split of one small corpus with no dispersion "

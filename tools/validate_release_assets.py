@@ -56,7 +56,7 @@ CODE_MARKERS = (
     "grid = structure_summary(result)",
     "report = evaluation_report(result, references_by_label(probe_record), sample_kind=",
     "assert report['verdict'] == 'sample-sanity'",
-    # Stage 6: the grid prior, the zero-shot checkpoint and the frozen policy (with the zero-shot policy as epoch 0)
+    # Stage 6: the grid prior, the zero-shot checkpoint and the frozen policy (with the copied-head zero-shot policy as epoch 0)
     "prior = prior_baseline(train_records, test_records, labels=ADAPT_LABELS, threshold=RECOGNITION_THRESHOLD)",
     "zero_shot_test = pipe.evaluate_zero_shot(test_records)",
     "probe_result = pipe.adapt(train_records, val_records, head_steps=HEAD_STEPS, head_lr=HEAD_LR, trainable_layers=0)",
@@ -90,10 +90,10 @@ CODE_MARKERS = (
 MARKDOWN_MARKERS = (
     "**Capability:** table structure recognition on a table-crop image",
     "bounded supervised adaptation of four of those labels to a new table corpus and box convention",
-    "**supervised adaptation of the structure vocabulary to a new table corpus and box convention, under an explicit zero-shot / frozen / unfrozen policy ladder**",
+    "**supervised adaptation of the structure vocabulary to a new table corpus and box convention, under an explicit copied-head zero-shot / frozen / unfrozen policy ladder**",
     "**grid prior**",
     "**untouched checkpoint**",
-    "**zero-shot policy**",
+    "**copied-head zero-shot policy**",
     "**frozen policy**",
     "**unfrozen policy**",
     "**lowest validation loss**",

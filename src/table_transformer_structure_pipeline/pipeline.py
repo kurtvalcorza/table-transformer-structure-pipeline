@@ -69,8 +69,9 @@ ARTIFACT_FORMAT = "org.valcorza.table-transformer-structure.adapter.v1"
 ARTIFACT_FORMAT_VERSION = 1
 ARTIFACT_WEIGHTS_NAME = "adapter.safetensors"
 ARTIFACT_MANIFEST_NAME = "manifest.json"
-POLICY_ZERO_SHOT = "zero-shot checkpoint (restricted heads copied from it, untrained)"
+POLICY_ZERO_SHOT = "copied-head zero-shot (the checkpoint's rows under a restricted softmax, untrained)"
 POLICY_FROZEN = "frozen backbone, encoder and decoder + restricted heads"
+POLICY_UNFROZEN = "unfrozen last {k} decoder layers + restricted heads"
 
 
 def _sha256(path: Path) -> str:
@@ -766,18 +767,20 @@ class TableTransformerStructurePipeline:
     ) -> dict[str, Any]:
         """Three-policy bounded adaptation to the four scored labels, selected on validation.
 
-        Epoch 0 (the **zero-shot policy**): a restricted `Linear(D_MODEL, 5)` class head whose rows are
-        copied from the checkpoint's own `table` / `table column` / `table row` / `table spanning cell` /
-        no-object rows, and a copy of the checkpoint's box head, scored on `val` untouched. Stage A (the
-        **frozen policy**, epoch 1): both trained on the cached decoder features of the training tables with
-        AdamW (`head_lr`, weight decay 1e-4) for `head_steps` full-batch steps under the DETR set loss (exact
-        Hungarian matching). Stage B (the **unfrozen policy**, epochs 2.., when `trainable_layers` > 0 and
-        `epochs` > 0): the last `trainable_layers` decoder layers trained with both heads end to end, one
+        Epoch 0 (the **copied-head zero-shot policy**): a restricted `Linear(D_MODEL, 5)` class head whose
+        rows are copied from the checkpoint's own `table` / `table column` / `table row` / `table spanning
+        cell` / no-object rows, and a copy of the checkpoint's box head, scored on `val` untrained. Stage A
+        (the **frozen policy**, epoch 1): both trained on the cached decoder features of the training tables
+        with AdamW (`head_lr`, weight decay 1e-4) for `head_steps` full-batch steps under the DETR set loss
+        (exact Hungarian matching). Stage B (the **unfrozen policy**, epochs 2.., when `trainable_layers` > 0
+        and `epochs` > 0): the last `trainable_layers` decoder layers trained with both heads end to end, one
         table per step, for `epochs` epochs (AdamW at `lr`, weight decay 0.01, gradient clipping 0.1, seeded
         order, no augmentation); the backbone, the input projection, the encoder, the query embeddings, the
         earlier decoder layers and the checkpoint's own heads stay untouched. Every epoch is scored on `val`
-        and the epoch with the **lowest validation DETR loss** is kept (epoch 0 competes, so the selected
-        policy can be the checkpoint itself) and its tensors restored; without `val` the final epoch is kept.
+        and the epoch with the **lowest validation DETR loss** is kept (epoch 0 competes, so the untrained
+        copied heads can be selected — a five-way softmax over the checkpoint's rows, not the untouched seven-
+        way checkpoint that `evaluate_zero_shot` scores) and its tensors restored; without `val` the final
+        epoch is kept.
         """
         if isinstance(head_steps, bool) or not isinstance(head_steps, int) or not 1 <= head_steps <= 5_000:
             raise ValueError("head_steps must be an int in 1..5000")
@@ -828,7 +831,7 @@ class TableTransformerStructurePipeline:
                 return None
             return {
                 "n": metrics["n_images"],
-                "loss": round(metrics["loss"], 6),
+                "loss": metrics["loss"],  # full precision: the selection compares this value
                 "map50": round(metrics["map50"], 6),
                 "map": round(metrics["map"], 6),
                 "grid_exact": round(metrics["grid_exact_at_threshold"], 6),
@@ -856,69 +859,82 @@ class TableTransformerStructurePipeline:
         best_state = snapshot()
 
         # Stage A: the restricted heads trained on the cached features (epoch 1).
-        head_opt = torch.optim.AdamW(
-            [*head.parameters(), *bbox_head.parameters()], lr=float(head_lr), weight_decay=1e-4
-        )
-        head_loss = math.nan
-        for _ in range(head_steps):
-            head_opt.zero_grad(set_to_none=True)
-            loss = sum(
-                self._loss(head(h), bbox_head(h).sigmoid(), *tg)
-                for h, tg in zip(cached, targets, strict=True)
-            ) / len(cached)
-            loss.backward()
-            head_opt.step()
-            head_loss = float(loss.detach())
-        self.adapter = {"policy": POLICY_FROZEN}
-        val_metrics = score()
-        history.append({"epoch": 1, "stage": POLICY_FROZEN, "train_loss": head_loss, "val": val_metrics})
-        if progress is not None:
-            progress(history[-1])
-        current = val_metrics["loss"] if val_metrics else -1
-        if current < best_score:
-            best_epoch, best_score, policy = 1, current, POLICY_FROZEN
-            best_state = snapshot()
-        if names and epochs > 0:
-            policy_b = f"unfrozen last {trainable_layers} decoder layers + restricted heads"
-            for n in names:
-                params[n].requires_grad_(True)
-            optimiser = torch.optim.AdamW(
-                [*head.parameters(), *bbox_head.parameters(), *(params[n] for n in names)],
-                lr=float(lr),
-                weight_decay=0.01,
+        initial_layers = {n: v.clone() for n, v in best_state["layers"].items()}
+        try:
+            head_opt = torch.optim.AdamW(
+                [*head.parameters(), *bbox_head.parameters()], lr=float(head_lr), weight_decay=1e-4
             )
-            for epoch in range(2, epochs + 2):
-                model.train()
-                head.train()
-                bbox_head.train()
-                order = list(range(len(train_records)))
-                rng.shuffle(order)
-                losses = []
-                for i in order:
-                    hidden = self._decoder_features(train_records[i]["image"], grad=True)
-                    loss = self._loss(head(hidden), bbox_head(hidden).sigmoid(), *targets[i])
-                    optimiser.zero_grad(set_to_none=True)
-                    loss.backward()
-                    torch.nn.utils.clip_grad_norm_(
-                        [*head.parameters(), *bbox_head.parameters(), *(params[n] for n in names)], 0.1
-                    )
-                    optimiser.step()
-                    losses.append(float(loss.detach()))
-                self.adapter = {"policy": policy_b}
-                val_metrics = score()
-                entry = {
-                    "epoch": epoch,
-                    "stage": policy_b,
-                    "train_loss": float(sum(losses) / len(losses)),
-                    "val": val_metrics,
-                }
-                history.append(entry)
-                if progress is not None:
-                    progress(entry)
-                current = val_metrics["loss"] if val_metrics else -epoch  # no val: the last epoch wins
-                if current < best_score:
-                    best_epoch, best_score, policy = epoch, current, policy_b
-                    best_state = snapshot()
+            head_loss = math.nan
+            for _ in range(head_steps):
+                head_opt.zero_grad(set_to_none=True)
+                loss = sum(
+                    self._loss(head(h), bbox_head(h).sigmoid(), *tg)
+                    for h, tg in zip(cached, targets, strict=True)
+                ) / len(cached)
+                loss.backward()
+                head_opt.step()
+                head_loss = float(loss.detach())
+            self.adapter = {"policy": POLICY_FROZEN}
+            val_metrics = score()
+            history.append({"epoch": 1, "stage": POLICY_FROZEN, "train_loss": head_loss, "val": val_metrics})
+            if progress is not None:
+                progress(history[-1])
+            current = val_metrics["loss"] if val_metrics else -1
+            if current < best_score:
+                best_epoch, best_score, policy = 1, current, POLICY_FROZEN
+                best_state = snapshot()
+            if names and epochs > 0:
+                policy_b = POLICY_UNFROZEN.format(k=trainable_layers)
+                for n in names:
+                    params[n].requires_grad_(True)
+                optimiser = torch.optim.AdamW(
+                    [*head.parameters(), *bbox_head.parameters(), *(params[n] for n in names)],
+                    lr=float(lr),
+                    weight_decay=0.01,
+                )
+                for epoch in range(2, epochs + 2):
+                    model.train()
+                    head.train()
+                    bbox_head.train()
+                    order = list(range(len(train_records)))
+                    rng.shuffle(order)
+                    losses = []
+                    for i in order:
+                        hidden = self._decoder_features(train_records[i]["image"], grad=True)
+                        loss = self._loss(head(hidden), bbox_head(hidden).sigmoid(), *targets[i])
+                        optimiser.zero_grad(set_to_none=True)
+                        loss.backward()
+                        torch.nn.utils.clip_grad_norm_(
+                            [*head.parameters(), *bbox_head.parameters(), *(params[n] for n in names)], 0.1
+                        )
+                        optimiser.step()
+                        losses.append(float(loss.detach()))
+                    self.adapter = {"policy": policy_b}
+                    val_metrics = score()
+                    entry = {
+                        "epoch": epoch,
+                        "stage": policy_b,
+                        "train_loss": float(sum(losses) / len(losses)),
+                        "val": val_metrics,
+                    }
+                    history.append(entry)
+                    if progress is not None:
+                        progress(entry)
+                    current = val_metrics["loss"] if val_metrics else -epoch  # no val: the last epoch wins
+                    if current < best_score:
+                        best_epoch, best_score, policy = epoch, current, policy_b
+                        best_state = snapshot()
+        except BaseException:
+            # Transactional: a failure in training, validation or the progress callback leaves the base
+            # exactly as it was, frozen, with no heads or adapter attached.
+            with torch.no_grad():
+                for n, value in initial_layers.items():
+                    params[n].copy_(value)
+            for p in model.parameters():
+                p.requires_grad_(False)
+            model.eval()
+            self._head, self._bbox_head, self.classes, self.adapter = None, None, [], None
+            raise
         with torch.no_grad():
             head.load_state_dict(best_state["head"])
             bbox_head.load_state_dict(best_state["bbox_head"])
@@ -1007,13 +1023,20 @@ class TableTransformerStructurePipeline:
         )
         return out
 
-    def load_artifact(self, artifact_dir: str | Path) -> dict[str, Any]:
-        """Verify an adapter's manifest and digest **before** deserialising, rebuild the heads and overlay any
-        decoder-layer tensors onto the base."""
-        root = Path(artifact_dir)
-        manifest = json.loads((root / ARTIFACT_MANIFEST_NAME).read_text(encoding="utf-8"))
+    def _check_artifact_manifest(self, root: Path, manifest: Mapping[str, Any]) -> tuple[Path, int]:
+        """Refuse an artifact whose manifest is not exactly the one this pipeline writes: the supported format
+        and version, the pinned base (id, revision, weight file, digest), exactly one file entry named
+        `adapter.safetensors` that resolves inside the artifact directory, `classes == ADAPT_LABELS`, a
+        canonical policy and an integer `trainable_layers` in range. Nothing is deserialised here. The digest
+        check that follows detects corruption or drift of the weights relative to the adjacent manifest; it
+        is not authenticity against an actor who can replace both files."""
         if manifest.get("format") != ARTIFACT_FORMAT:
             raise ValueError(f"artifact format {manifest.get('format')!r} != {ARTIFACT_FORMAT!r}")
+        if manifest.get("format_version") != ARTIFACT_FORMAT_VERSION:
+            raise ValueError(
+                f"artifact format_version {manifest.get('format_version')!r} is not the supported "
+                f"{ARTIFACT_FORMAT_VERSION!r}"
+            )
         base = manifest.get("base_model", {})
         if (base.get("id"), base.get("revision"), base.get("weight_sha256")) != (
             MODEL_ID,
@@ -1021,21 +1044,66 @@ class TableTransformerStructurePipeline:
             WEIGHT_SHA256,
         ):
             raise ValueError("artifact was adapted from a different base model, revision or weight file")
+        if base.get("weight_file", WEIGHTS_FILE) != WEIGHTS_FILE:
+            raise ValueError("artifact was adapted from a different base weight file")
+        files = manifest.get("files")
+        if not isinstance(files, list) or len(files) != 1:
+            raise ValueError("artifact manifest must list exactly one file")
+        entry = files[0]
+        if not isinstance(entry, Mapping) or entry.get("path") != ARTIFACT_WEIGHTS_NAME:
+            raise ValueError(f"artifact manifest must name exactly {ARTIFACT_WEIGHTS_NAME!r}")
+        weights_path = (root / entry["path"]).resolve()
+        if weights_path.parent != root.resolve():
+            raise ValueError("artifact weight path must resolve inside the artifact directory")
+        adapter = manifest.get("adapter")
+        if not isinstance(adapter, Mapping):
+            raise ValueError("artifact manifest has no adapter block")
+        classes = list(adapter.get("classes") or [])
+        if tuple(classes) != ADAPT_LABELS:
+            raise ValueError(f"artifact classes {classes} are not the adaptation labels {list(ADAPT_LABELS)}")
+        layers = adapter.get("trainable_layers")
+        if isinstance(layers, bool) or not isinstance(layers, int) or not 0 <= layers <= DECODER_LAYERS:
+            raise ValueError(
+                f"artifact manifest does not record an integer trainable_layers in 0..{DECODER_LAYERS}"
+            )
+        policy = adapter.get("policy")
+        if policy in (POLICY_ZERO_SHOT, POLICY_FROZEN):
+            layers = 0
+        elif policy != POLICY_UNFROZEN.format(k=layers) or layers == 0:
+            raise ValueError(
+                f"artifact policy {policy!r} is not a canonical policy for trainable_layers={layers}"
+            )
+        if not isinstance(manifest.get("tensors"), list):
+            raise ValueError("artifact manifest must list its tensors")
+        return weights_path, layers
+
+    def load_artifact(self, artifact_dir: str | Path) -> dict[str, Any]:
+        """Verify an adapter's manifest, digest and exact tensor set **before** deserialising, rebuild the
+        heads and overlay any decoder-layer tensors (none under the copied-head zero-shot and frozen
+        policies)."""
+        root = Path(artifact_dir)
+        manifest = json.loads((root / ARTIFACT_MANIFEST_NAME).read_text(encoding="utf-8"))
+        weights_path, layers = self._check_artifact_manifest(root, manifest)
         entry = manifest["files"][0]
-        weights_path = root / entry["path"]
         if not weights_path.is_file():
             raise FileNotFoundError(f"artifact weights missing: {weights_path}")
         if _sha256(weights_path) != entry["sha256"] or weights_path.stat().st_size != entry["bytes"]:
             raise ValueError(f"{entry['path']}: digest or size mismatch; refusing to load")
-        classes = list(manifest.get("adapter", {}).get("classes") or [])
-        if tuple(classes) != ADAPT_LABELS:
-            raise ValueError(f"artifact classes {classes} are not the adaptation labels {list(ADAPT_LABELS)}")
+        classes = list(ADAPT_LABELS)
         model, _ = self._require_model()
         import torch
         from safetensors.torch import load_file
 
+        # The exact tensor set the recorded policy implies: the two heads, plus the last `layers` decoder
+        # layers only under the unfrozen policy.
+        head_names = ["head.bias", "head.weight"] + [
+            f"bbox_head.{k}" for k in model.bbox_predictor.state_dict()
+        ]
+        expected = sorted([*head_names, *self._trainable_names(layers)])
+        if sorted(manifest["tensors"]) != expected:
+            raise ValueError("artifact tensor list does not match its recorded policy and trainable_layers")
         tensors = load_file(str(weights_path))
-        if sorted(tensors) != manifest["tensors"]:
+        if sorted(tensors) != expected:
             raise ValueError("artifact tensor names differ from its manifest")
         if (
             tuple(tensors.get("head.weight", torch.empty(0)).shape) != (len(classes) + 1, D_MODEL)
