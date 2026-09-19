@@ -97,7 +97,7 @@ Before changing the registry status from `Candidate` to `Release-grade`:
    - Section 4: `load_corpus` decoding the 94 embedded tables after their 94 digest checks, and the seeded draw of
      10 / 7 / 29 whole papers into 21 / 23 / 50 test, validation and training tables (300 / 351 / 636 objects) with
      `check_split_disjoint` reporting no shared table and no shared paper, `split_summary` printed and the three
-     dataset digests `__DIG_TRAIN__` / `__DIG_VAL__` / `__DIG_TEST__`; `outputs/…_train.csv` written; the four
+     dataset digests `d189a035…` / `20cf1d03…` / `4deb0f90…`; `outputs/…_train.csv` written; the four
      dataset refusal probes each raising `ValueError`;
    - Section 5: the ceilings (`MIN_IMAGE_SIDE` 16, `MAX_IMAGE_SIDE` 4096, `MAX_DETECTIONS` 125) and the contract
      (`NUM_QUERIES` 125, `D_MODEL` 256, `DECODER_LAYERS` 6, `PARAMETER_COUNT` 28,828,619) surfaced;
@@ -143,7 +143,7 @@ A known-failing default path in the supported runtime blocks release (REL11).
 
 | Notebook | Commit / notebook blob | Date (UTC) | Executor | Outcome |
 |---|---|---|---|---|
-| `table_transformer_structure_colab.ipynb` (`E2E`) | `__LOCAL_STAMP__` / `__LOCAL_BLOB__` | 2026-09-19 | Local pre-flight harness (Windows, CPython 3.12.10, CPU, `google.colab` shim, pins pre-installed) | PASS — pre-flight only, **not** promotion evidence |
+| `table_transformer_structure_colab.ipynb` (`E2E`) | `5d70d67` / `39b2b5fc` | 2026-09-19 | Local pre-flight harness (Windows, CPython 3.12.10, CPU, `google.colab` shim, pins pre-installed) | PASS — pre-flight only, **not** promotion evidence |
 | `table_transformer_structure_colab.ipynb` (`TASK-INFERENCE`, superseded) | `2f07026` / `fe2059b8bffa` | 2026-09-14 | Kaggle CPU (`kurtvalcorza/dimer-nb2-table-transformer-structure` v1) | PASSED — 8/8 code cells, 211.8 s, 10 files, 116 MB staged; evidence for the earlier inference-only notebook — not for the `E2E` blob |
 
 ## Recorded executions
@@ -155,7 +155,7 @@ they are measurements for the stated runtime, not general estimates.
 
 | Date (UTC) | Commit / notebook blob | Executor | Path exercised | Wall | Outcome |
 |---|---|---|---|---|---|
-__LOCAL_ROW__
+| 2026-09-19 | `5d70d67` / `39b2b5fc` | Local pre-flight harness (Windows, CPython 3.12.10, CPU float32, `torch 2.14.0+cu130` with `CUDA_VISIBLE_DEVICES=-1`, `transformers 4.57.6`) | Default sample path (install skipped, pins pre-installed → four carried modules → inline manifest assert → `stage_missing_files` fetched 0 of 4 entries because the snapshot was pre-staged → `verify_snapshot` 4 files → `from_pretrained` on CPU → `load_corpus` decoded the 94 embedded tables after their digest checks → 21 / 23 / 50 drawn by whole papers with `check_split_disjoint` clean, 300 / 351 / 636 objects, digests `4deb0f90…` / `20cf1d03…` / `d189a035…` → four dataset refusals → input manifest with the threshold refusal → `recognize` on `test-000` (SciTSR `1702.02925v1.7`, a 10 × 7 grid, 0.13 s) with all four sanity checks `True`, 19 objects at 0.5 including one `table column header`, implied grid 10 × 7 → `evaluation_report` **`sample-sanity`**, 18 `box_iou` entries (table 0.93, rows 0.71–0.78, columns 0.77–0.97) → grid prior → zero-shot → the zero-shot-vs-heads call (54.3 s) → the full ladder (84.3 s) → validation + test evaluation → before/after render + preview → adapter export → reload parity) | 212.9 s | **PASSED** — 12/12 code cells; grid prior mAP@0.5 0.3868 / mAP 0.2621 (grid agreement 0.0476); zero-shot 0.8873 / AP@0.75 0.7339 / mAP 0.6352 (columns 1.000, rows 0.865, spanning cells 0.748; grid agreement 0.857; mean best IoU 0.813); frozen policy 0.8525 / 0.7613 / 0.7148 (validation loss 0.2945 against 0.7705 for the untouched rows; set loss 0.518); `adapt`: 133,897 head + 3,157,504 decoder-layer parameters of 28,828,619, validation loss 0.7705 (untouched rows) → 0.2945 (heads) → 0.3104 → 0.2818 → 0.2860 with mAP@0.5 0.970 → 0.922 → 0.924 → 0.923 → 0.923, selected `unfrozen last 2 decoder layers + restricted heads` at `best_epoch` 3; **selected policy on the test split 0.8684 / 0.7748 / 0.7222 (Δ +0.016 mAP@0.5, +0.014 AP@0.75, +0.007 mAP vs the heads; −0.019 / +0.041 / +0.087 vs the checkpoint), grid agreement 0.762, mean best IoU 0.901**; three test tables' row and column counts matched the reference under every policy; adapter 13,172,204 B / 60 tensors, SHA-256 `baca5641…`; reload parity exact ((query, class) scores identical, mAP@0.5 0.868382 both ways); six exports written. Pre-flight; hosted clean-runtime run still required |
 | 2026-09-14 | `2f07026` / `fe2059b8bffa` (`TASK-INFERENCE`, superseded) | Kaggle CPU (`kurtvalcorza/dimer-nb2-table-transformer-structure` v1) | Default sample path of the inference-only notebook: synthetic 730×350 crop, `stage_missing_files` fetching the four manifest entries from the Hub, `verify_snapshot`, `recognize` → 15 objects, `evaluation_report` `sample-sanity` with per-label `box_iou`, 5 exports | 211.8 s | **PASSED** — 8/8 code cells, 10 files, 116 MB staged; history only |
 | 2026-09-13 | working tree of the initial build (blob `36e39919473b`, commit `0c5c4f4`; `TASK-INFERENCE`, superseded) | Local Windows-venv harness, Python 3.12, torch 2.14.0+cu130, transformers 4.57.6 | Default synthetic path, all 8 code cells | 20.3 s | PASS — pre-flight only; history |
 
