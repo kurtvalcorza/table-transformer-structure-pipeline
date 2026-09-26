@@ -164,3 +164,19 @@ they are measurements for the stated runtime, not general estimates.
 ## Current status
 
 **Release-grade.** The `E2E` notebook blob `4686cf7d` (committed at `4c56fa0`) executed top-to-bottom in a clean Kaggle Tesla T4 runtime on 2026-09-19 (12/12 ok (1 restart after install cell), 553.1 s, 10 files, 116 MB fetched from the Hub and digest-verified inside the notebook) with no repository checkout — the REL1/REL10 supported-runtime evidence this file gates on. The local pre-flight rows above are what preceded it and remain history. Any later change to the carried modules or to the notebook produces a new blob, and the registry returns to **Candidate** until a clean run of that blob is recorded here.
+
+## Supplemental table intelligence workshop — `tutorials/DIMER_Table_Intelligence_Workshop.ipynb`
+
+This entry applies only to the supplemental workshop notebook, not the primary tutorial executions above.
+
+### Maintainer-supplied successful Colab run — 2026-09-26
+
+The maintainer supplied the [executed notebook](execution-evidence/2026-09-26/DIMER_Table_Intelligence_Workshop.ipynb) and authorized merging PR #8 (merge commit `f1886fe`). The file is archived byte-for-byte, SHA-256 `c8fed54721db86a76bb3f591fcf37de4f05bd6fc7866756d63cc7502cda16dd5`. All 29 code cells have execution counts, 49 saved outputs and zero saved errors. Code-cell sources match commit `50446bee9a233d0c93b88567bbaa9af002c5ebc0`, tutorial blob `3b570ea3f4bd116a51baccbbb4d28cf000638bd6`, apart from Colab-inserted `# @title` lines. Later commits on `main` that touch the notebook (`a7cf06b` (AI Use Disclosure)) change only markdown cells; its code cells are identical to the executed revision. This evidence commit does not change tutorial code.
+
+Scope: Default path: 10 canonical tables and 50 questions through Table Transformer detection, Table Transformer structure recognition, grid reconstruction and TAPAS question answering. BYOD was not exercised.
+
+Saved runtime: Python 3.13.15, torch 2.14.0+cu130, Transformers 4.57.6, timm 1.0.30, datasets 4.1.1, NumPy 2.1.3 (preloaded by the host kernel, retained), CUDA Tesla T4. Execution reaches the final completion summary. The separate exported files were not supplied, so their bytes/digests were not independently inspected. Saved counts run sequentially from 1 to 29; runtime freshness and absence of manual restarts/reruns are not independently established by the artifact.
+
+Results (sample-sanity measures on the built-in data, not general model rankings): Detection AP50 0.900, hit@0.50 0.900, mean IoU 0.778; exact structure grids 10/10 on gold crops and 9/10 on detected crops; valid reconstructed tables 10/10 (gold) and 8/10 (detected); TAPAS denotation accuracy 0.800 on gold tables, 0.800 structure-only and 0.600 end to end.
+
+Status remains **Candidate**. Merge approval and this successful default-path run do not close the optional-path (FULL/BYOD) or REL12 qualification gates, and `metadata.dimer.clean_runtime_evidence` in the notebook stays `pending` as authored (editing it would change the verified blob).
