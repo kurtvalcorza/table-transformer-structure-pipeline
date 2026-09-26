@@ -1,4 +1,4 @@
-# DIMER Table Intelligence Workshop
+# DIMER Notebook: Table Intelligence
 
 ## Table Detection → Structure Recognition → Table Reconstruction → TAPAS QA
 
@@ -17,6 +17,39 @@
 3. TAPAS Large WTQ
 
 **DePlot:** explicitly outside the canonical workflow
+
+## Guided-notebook layer
+
+**Who it is for.** Learners who can run Python cells in Colab/Jupyter and are new to composed document-intelligence pipelines.
+
+**How to use this notebook.**
+1. Use a Tesla T4-class GPU or equivalent.
+2. Choose **Run all** for the canonical path; the defaults are the reference settings.
+3. Read the conceptual and interpretation cells while the notebook runs.
+4. Cells marked **Infrastructure** handle setup, immutable model/data acquisition, provenance, or orchestration. Learners may run those cells without studying their implementation.
+
+**Task at a glance.**
+
+`document page → table detection → table crop → structure recognition → cell grid reconstruction → text assignment → structured table → TAPAS QA → answer`
+
+**Roadmap.**
+1. Distinguish the three table-intelligence tasks.
+2. Inspect the controlled SciTSR-PD inputs.
+3. Establish stage-level reference metrics.
+4. Run detection, structure recognition, reconstruction, and QA.
+5. Compare gold-crop, structure-only, and full end-to-end paths.
+6. Trace one downstream error back to the stage that introduced it.
+7. Change one bounded parameter, rerun the affected stage, and explain the tradeoff.
+8. Write an evidence-based conclusion and limitations.
+
+**Required learner scaffolding in the generated notebook.**
+- Before each principal stage, state the question being tested and ask for a prediction where meaningful.
+- After each principal stage, include **Expected result** or **What to notice** guidance.
+- Include interpretation checkpoints with collapsible sample answers.
+- Include at least one **Predict → Change one thing → Run → Observe → Explain** activity, preferably a threshold or crop-padding change on the validation path only.
+- Label long setup/model-staging/helper cells **Infrastructure**.
+- End with troubleshooting, glossary, and an evidence-based conclusion template.
+- Use **notebook** for the `.ipynb` artifact. Reserve **workshop** for the actual event/training activity.
 
 ---
 
@@ -46,7 +79,7 @@ TAPAS
 question answer
 ```
 
-The workshop focuses on the interfaces between these stages.
+The notebook focuses on the interfaces between these stages.
 
 The objective is not simply to run three models independently. It is to show how errors propagate through a composed document-understanding system.
 
@@ -54,7 +87,7 @@ The objective is not simply to run three models independently. It is to show how
 
 # 2. Learning objectives
 
-By the end of the workshop, participants should be able to:
+By the end of the notebook activity, learners should be able to:
 
 1. explain the difference between table detection, structure recognition and table QA;
 2. locate a table within a page;
