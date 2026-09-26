@@ -47,3 +47,20 @@ def test_clean_notebook():
         if cell["cell_type"] == "code":
             assert cell["execution_count"] is None
             assert cell["outputs"] == []
+
+
+def test_generator_parity():
+    import subprocess
+    import sys
+    subprocess.run([sys.executable, str(REPO / "tools" / "build_table_intelligence_workshop.py"), "--check"], cwd=REPO, check=True)
+
+
+def test_structure_manifest_matches_the_repository_snapshot():
+    import glob
+    import re
+    body = "\n".join(code_cells())
+    embedded = json.loads(re.search(r'STRUCTURE_MANIFEST=json\.loads\(r"""(.*?)"""\)', body, re.S).group(1))
+    committed = json.loads(Path(glob.glob(str(REPO / "weights" / "*" / "dimer-base-manifest.json"))[0]).read_text(encoding="utf-8"))
+    assert embedded["modelId"] == committed["modelId"]
+    assert embedded["revision"] == committed["revision"]
+    assert {f["path"]: (f["bytes"], f["sha256"]) for f in embedded["files"]} == {f["path"]: (f["bytes"], f["sha256"]) for f in committed["files"]}
