@@ -64,3 +64,31 @@ def test_structure_manifest_matches_the_repository_snapshot():
     assert embedded["modelId"] == committed["modelId"]
     assert embedded["revision"] == committed["revision"]
     assert {f["path"]: (f["bytes"], f["sha256"]) for f in embedded["files"]} == {f["path"]: (f["bytes"], f["sha256"]) for f in committed["files"]}
+
+
+def test_modules_are_imported_before_first_use():
+    import ast
+    cells = code_cells()
+    for module in ("json", "re"):
+        first_use = next(i for i, cell in enumerate(cells) if f"{module}." in cell)
+        imported = {
+            alias.name
+            for cell in cells[: first_use + 1]
+            for node in ast.walk(ast.parse(cell))
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        }
+        assert module in imported, f"{module} is used in code cell {first_use} before it is imported"
+
+
+def test_derivation_is_pinned_to_the_carrier_tables():
+    import ast
+    from table_transformer_structure_pipeline.sample_data import SAMPLE_RECORDS
+    body = "\n".join(code_cells())
+    node = next(
+        n for n in ast.walk(ast.parse(body))
+        if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", None) == "CARRIER_TABLE_IDS"
+    )
+    assert set(ast.literal_eval(node.value.args[0])) == {r["table_id"] for r in SAMPLE_RECORDS}
+    # Spec §18: QA tables come only from the paper-disjoint test split.
+    assert 'splits["validation"]+splits["train"]' not in body
