@@ -120,3 +120,9 @@ def test_qa_tables_come_from_the_test_split_only():
 def test_timm_is_pinned_for_the_detection_backbone():
     # microsoft/table-transformer-detection builds its ResNet-18 backbone through timm.
     assert any('"timm":"' in cell for cell in code_cells())
+
+
+def test_splits_do_not_iterate_sets():
+    # Set iteration order of strings changes between processes, which made the complex probe non-deterministic.
+    split_cell = next(cell for cell in code_cells() if "rng=random.Random(42)" in cell)
+    assert "set(papers" not in split_cell

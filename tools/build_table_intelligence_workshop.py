@@ -48,7 +48,9 @@ DIMER_METADATA = {
 def build_notebook():
     rendered = []
     for index, cell in enumerate(CELLS):
-        base = {"id": f"dimer-table-workshop-{index:02d}", "metadata": {}, "source": cell["source"].splitlines(keepends=True)}
+        # Infrastructure cells (GDL11) are collapsed where the notebook viewer supports it.
+        metadata = {"jupyter": {"source_hidden": True}} if cell.get("infrastructure") else {}
+        base = {"id": f"dimer-table-workshop-{index:02d}", "metadata": metadata, "source": cell["source"].splitlines(keepends=True)}
         if cell["kind"] == "markdown":
             rendered.append({"cell_type": "markdown", **base})
         else:
