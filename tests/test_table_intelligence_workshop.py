@@ -92,3 +92,8 @@ def test_derivation_is_pinned_to_the_carrier_tables():
     assert set(ast.literal_eval(node.value.args[0])) == {r["table_id"] for r in SAMPLE_RECORDS}
     # Spec §18: QA tables come only from the paper-disjoint test split.
     assert 'splits["validation"]+splits["train"]' not in body
+
+
+def test_timm_is_pinned_for_the_detection_backbone():
+    # microsoft/table-transformer-detection builds its ResNet-18 backbone through timm.
+    assert any('"timm":"' in cell for cell in code_cells())
