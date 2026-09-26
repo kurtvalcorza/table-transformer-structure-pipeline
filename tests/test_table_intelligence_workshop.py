@@ -81,17 +81,40 @@ def test_modules_are_imported_before_first_use():
         assert module in imported, f"{module} is used in code cell {first_use} before it is imported"
 
 
-def test_derivation_is_pinned_to_the_carrier_tables():
-    import ast
+def test_geometry_is_the_carrier_geometry():
+    import hashlib
+    import re
     from table_transformer_structure_pipeline.sample_data import SAMPLE_RECORDS
     body = "\n".join(code_cells())
-    node = next(
-        n for n in ast.walk(ast.parse(body))
-        if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", None) == "CARRIER_TABLE_IDS"
-    )
-    assert set(ast.literal_eval(node.value.args[0])) == {r["table_id"] for r in SAMPLE_RECORDS}
-    # Spec §18: QA tables come only from the paper-disjoint test split.
-    assert 'splits["validation"]+splits["train"]' not in body
+    text = re.search(r'CARRIER_GEOMETRY_JSON=r"""(.*?)"""', body, re.S).group(1)
+    digest = re.search(r'CARRIER_GEOMETRY_SHA256="([0-9a-f]{64})"', body).group(1)
+    assert hashlib.sha256(text.encode()).hexdigest() == digest
+    geometry = json.loads(text)
+    codes = {"table": "t", "table row": "r", "table column": "c", "table spanning cell": "s"}
+    assert set(geometry) == {e["table_id"] for e in SAMPLE_RECORDS}
+    for e in SAMPLE_RECORDS:
+        g = geometry[e["table_id"]]
+        assert (g["paper_id"], g["dx"], g["dy"], g["n_rows"], g["n_cols"]) == (
+            e["paper_id"], e["alignment"]["dx"], e["alignment"]["dy"], e["n_rows"], e["n_cols"]
+        )
+        assert g["objects"] == [[codes[o["label"]], *o["box"]] for o in e["objects"]]
+
+
+def test_pixel_digests_match_the_carrier_images():
+    import hashlib
+    import re
+    from table_transformer_structure_pipeline import samples
+    body = "\n".join(code_cells())
+    geometry = json.loads(re.search(r'CARRIER_GEOMETRY_JSON=r"""(.*?)"""', body, re.S).group(1))
+    for record in samples.load_corpus():
+        rgb = record["image"].convert("RGB")
+        digest = hashlib.sha256(f"{rgb.width}x{rgb.height}:".encode() + rgb.tobytes()).hexdigest()
+        assert geometry[record["id"]]["pixel_sha256"] == digest
+
+
+def test_qa_tables_come_from_the_test_split_only():
+    # Spec §18: never borrow train/validation tables for the canonical QA set.
+    assert 'splits["validation"]+splits["train"]' not in "\n".join(code_cells())
 
 
 def test_timm_is_pinned_for_the_detection_backbone():
