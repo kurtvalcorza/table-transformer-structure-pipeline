@@ -41,7 +41,14 @@ DIMER_METADATA = {
         "repository": "kurtvalcorza/table-transformer-structure-pipeline",
         "source": "tools/table_intelligence_workshop_source.py",
         "generator": "tools/build_table_intelligence_workshop.py"
-    }
+    },
+    "review_revisions": [
+        {
+            "review": "docs/reviews/2026-10-02-notebook-review/DIMER_Table_Intelligence_Workshop_Review.md",
+            "base_commit": "c218d3119e157293949862d6972e77d4a029c6b0",
+            "fixed": ["TBL-M1", "TBL-M2", "TBL-M3", "TBL-m1", "TBL-m2", "TBL-m3", "TBL-m4", "TBL-m5", "TBL-m6", "TBL-m7"]
+        }
+    ]
 }
 
 
@@ -63,7 +70,7 @@ def build_notebook():
             "dimer": DIMER_METADATA,
             "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
             "language_info": {"name": "python"},
-            "workshop_revision": "0.1.0-candidate",
+            "workshop_revision": "0.2.0-candidate",
         },
         "nbformat": 4,
         "nbformat_minor": 5,
