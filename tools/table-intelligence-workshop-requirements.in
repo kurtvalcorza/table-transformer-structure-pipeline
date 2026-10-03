@@ -1,0 +1,16 @@
+# Isolated environment of DIMER_Table_Intelligence_Workshop.ipynb (2026-10-03).
+# Exact pins carried over from the notebook's former in-kernel install (the PINS dict of the section 4 cell):
+torch==2.14.0
+torchvision==0.29.0
+torchaudio==2.11.0
+transformers==4.57.6
+# The detection checkpoint builds its ResNet-18 backbone through timm.
+timm==1.0.30
+safetensors==0.8.0
+# numpy: the former cell kept a NumPy 2.x the hosted kernel had already loaded and otherwise installed this pin.
+numpy==2.5.3
+pillow==11.3.0
+huggingface-hub==0.36.2
+datasets==4.1.1
+pyarrow==25.0.1
+pandas==2.2.3
