@@ -343,6 +343,35 @@ class TableTransformerStructurePipeline:
     _bbox_head: Any = field(default=None, repr=False)  # a trained copy of the checkpoint's box head
     classes: list[str] = field(default_factory=list)
     adapter: dict[str, Any] | None = None
+    # Pinned-base values of every decoder tensor adapt() or load_artifact() has changed, kept the first time
+    # each is about to change: every adaptation starts from the verified base decoder, never from a previous
+    # run (review finding TTS-M2).
+    _base_layers: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    def _remember_base(self, names: Sequence[str]) -> None:
+        model, _ = self._require_model()
+        params = dict(model.named_parameters())
+        for name in names:
+            if name not in self._base_layers:
+                self._base_layers[name] = params[name].detach().clone()
+
+    def restore_base(self) -> list[str]:
+        """Put the pipeline back to the pinned base: copy the base values into every decoder tensor an
+        earlier adapt() or load_artifact() changed and drop the restricted heads, so `recognize`,
+        `evaluate_zero_shot` and a new adapt() read the untouched checkpoint. Returns the names of the
+        restored tensors."""
+        model, _ = self._require_model()
+        restored = sorted(self._base_layers)
+        if restored:
+            import torch
+
+            params = dict(model.named_parameters())
+            with torch.no_grad():
+                for name in restored:
+                    params[name].copy_(self._base_layers[name])
+            model.eval()
+        self._head, self._bbox_head, self.classes, self.adapter = None, None, [], None
+        return restored
 
     @classmethod
     def from_pretrained(
@@ -780,7 +809,9 @@ class TableTransformerStructurePipeline:
         and the epoch with the **lowest validation DETR loss** is kept (epoch 0 competes, so the untrained
         copied heads can be selected — a five-way softmax over the checkpoint's rows, not the untouched seven-
         way checkpoint that `evaluate_zero_shot` scores) and its tensors restored; without `val` the final
-        epoch is kept.
+        epoch is kept. Every call starts from the pinned base: decoder tensors an earlier adapt() or
+        load_artifact() changed are restored before the features are cached, so every policy starts from the
+        checkpoint.
         """
         if isinstance(head_steps, bool) or not isinstance(head_steps, int) or not 1 <= head_steps <= 5_000:
             raise ValueError("head_steps must be an int in 1..5000")
@@ -810,6 +841,12 @@ class TableTransformerStructurePipeline:
         model.eval()
         for p in model.parameters():
             p.requires_grad_(False)
+        # The weights as this call found them: a failed call puts them back (the transactional contract),
+        # while a successful one starts from the pinned base.
+        current = dict(model.named_parameters())
+        previous_layers = {n: current[n].detach().clone() for n in self._base_layers}
+        restored = self.restore_base()
+        self._remember_base(names)
 
         # Epoch 0: the restricted heads copied from the checkpoint's rows, scored untouched.
         cached = [self._decoder_features(r["image"]) for r in train_records]
@@ -925,10 +962,13 @@ class TableTransformerStructurePipeline:
                         best_epoch, best_score, policy = epoch, current, policy_b
                         best_state = snapshot()
         except BaseException:
-            # Transactional: a failure in training, validation or the progress callback leaves the base
-            # exactly as it was, frozen, with no heads or adapter attached.
+            # Transactional: a failure in training, validation or the progress callback puts the
+            # decoder weights back exactly as this call found them, frozen, with no heads or adapter
+            # attached.
             with torch.no_grad():
                 for n, value in initial_layers.items():
+                    params[n].copy_(value)
+                for n, value in previous_layers.items():
                     params[n].copy_(value)
             for p in model.parameters():
                 p.requires_grad_(False)
@@ -970,6 +1010,8 @@ class TableTransformerStructurePipeline:
             "n_train": len(train_records),
             "n_val": len(val_records) if val_records is not None else 0,
             "seed": seed,
+            "started_from": "pinned base"
+            + (f" (restored {len(restored)} decoder tensors changed by an earlier run)" if restored else ""),
             "history": history,
             "trainable_names": names if policy not in (POLICY_ZERO_SHOT, POLICY_FROZEN) else [],
             "seconds": round(time.perf_counter() - started, 3),
@@ -1132,7 +1174,9 @@ class TableTransformerStructurePipeline:
         bbox_head = bbox_head.to(self.device).eval()
         for p in [*head.parameters(), *bbox_head.parameters()]:
             p.requires_grad_(False)
+        self.restore_base()
         if layer_tensors:
+            self._remember_base(sorted(layer_tensors))
             with torch.no_grad():
                 params = dict(model.named_parameters())
                 for key, value in layer_tensors.items():
