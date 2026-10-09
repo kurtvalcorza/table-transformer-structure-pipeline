@@ -65,7 +65,7 @@ weights/table-transformer-structure-v1.1-all/
 
 ## Release status
 
-**Release-grade** — the `E2E` notebook blob `4686cf7d` (committed at `4c56fa0`) executed top-to-bottom in a clean Kaggle Tesla T4 runtime on 2026-09-19 (12/12 ok (1 restart after install cell), 553.1 s); the record is in `docs/release-verification.md` and `STATUS.md`. Static and unit checks — including the standalone generator parity checks — are necessary but were never the evidence; the hosted run is. A later change to the carried modules or the notebook returns the status to Candidate until re-verified.
+**Candidate** — The 2026-09-19 Kaggle T4 run of `4c56fa0` / blob `4686cf7d` needed a manual restart after the install cell, so it is not a one-pass `Run all` and not promotion evidence. The 2026-10-05 review-fix blob `dea5747fafbe` (commit `c88210b`) completed one pass with no restart and 0 errors on a fresh Colab Tesla T4 on 2026-10-09 (Colab CLI sequential execution, 14/14 code cells, 448.0 s; isolated `uv` environment, 47 locked packages; test mAP@0.5 checkpoint 0.8873 / frozen 0.8630 / selected 0.8728, mAP 0.6352 / 0.7197 / 0.7255; reload parity exact); the REL12 BYOD journeys are not exercised yet. The record is in `docs/release-verification.md` and `STATUS.md`.
 
 ## Documentation
 

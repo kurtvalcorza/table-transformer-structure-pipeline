@@ -1,0 +1,100 @@
+[colab] Parsing notebook '/home/kurt/colab-runs/table-transformer-structure-pipeline-c88210b-a28da2/table_transformer_structure_colab_c88210b_colab-cli-t4.ipynb'...
+[colab] Executing cell 1/14 - Infrastructure: build (or reuse) the isolated environment and route later cells to it...
+{'isolated_environment': '/content/dimer_isolated_env_9bde5ffd821e', 'reused': False, 'isolated_python': '3.12.12', 'kernel_python': '3.13.15', 'locked_packages': 47, 'setup_seconds': 62}
+{'routed_to': '/content/dimer_isolated_env_9bde5ffd821e/bin/python', 'worker_pid': 1131, 'worker_reused': False}
+[colab] Executing cell 2/14 - Infrastructure: record the runtime...
+{'notebook_source': {'repository': 'table-transformer-structure-pipeline', 'repository_revision': 'f15238e3f95b07970e1b39db9c7c8c893648994e', 'embedded_module': 'src/table_transformer_structure_pipeline/pipeline.py', 'embedded_modules': ['src/table_transformer_structure_pipeline/pipeline.py', 'src/table_transformer_structure_pipeline/sample_data.py', 'src/table_transformer_structure_pipeline/metrics.py', 'src/table_transformer_structure_pipeline/samples.py'], 'module_sha256': '6b12b2d5bcbdeea4708bebe153cd70742d25f6eac48f7d6b93c888101e33d877', 'generator': 'build_notebook.py/2.2', 'notebook_spec': '2.2'}, 'python': '3.12.12', 'executable': '/content/dimer_isolated_env_9bde5ffd821e/bin/python', 'torch': '2.14.0+cu130', 'transformers': '4.57.6', 'cuda': True}
+[colab] Executing cell 3/14 - table_transformer_structure-08...
+[colab] Executing cell 4/14 - table_transformer_structure-10...
+[colab] Executing cell 5/14 - table_transformer_structure-12...
+[colab] Executing cell 6/14 - table_transformer_structure-14...
+[colab] Executing cell 7/14 - Infrastructure: stage and digest-verify the pinned snapshot, then load the model...
+{'model_id': 'microsoft/table-transformer-structure-recognition-v1.1-all', 'revision': '7587a7ef111d9dcbf8ac695f1376ab7014340a0c', 'license': 'mit', 'files': 4, 'total_bytes': 115515347}
+{'weights_dir': '/content/weights/table-transformer-structure-v1.1-all', 'fetched': ['README.md', 'config.json', 'model.safetensors', 'preprocessor_config.json']}
+{'verified_files': 4, 'revision': '7587a7ef111d9dcbf8ac695f1376ab7014340a0c'}
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+{'device': 'cuda:0', 'source': 'local-snapshot'}
+[colab] Executing cell 8/14 - table_transformer_structure-18...
+{'data_source': 'SciTSR-PD scientific tables (SciTSR-PD (bevaya/SciTSR-pd @ dae336ef, CC0 / public-domain source papers), structure boxes derived 2026-09-19; CC0-1.0)', 'raw': {'tables': 94, 'papers': 46, 'objects': 1287, 'spanning_cells': 71}, 'splits': {'test': 21, 'validation': 23, 'train': 50}, 'split_summary': {'test': {'tables': 21, 'objects': {'table': 21, 'table column': 105, 'table row': 161, 'table spanning cell': 13}, 'papers': 10}, 'validation': {'tables': 23, 'objects': {'table': 23, 'table column': 113, 'table row': 176, 'table spanning cell': 39}, 'papers': 7}, 'train': {'tables': 50, 'objects': {'table': 50, 'table column': 199, 'table row': 368, 'table spanning cell': 19}, 'papers': 29}}, 'load_seconds': 0.1, 'source_files': ['data/train-00000-of-00001.parquet', 'data/test-00000-of-00001.parquet']}
+{'test': {'n': 21, 'objects': {'table': 21, 'table column': 105, 'table row': 161, 'table spanning cell': 13}, 'objects_per_image': {'min': 8, 'max': 22}, 'image_side': {'min': 368, 'max': 951}, 'digest': '4deb0f90832026cf...'}}
+{'validation': {'n': 23, 'objects': {'table': 23, 'table column': 113, 'table row': 176, 'table spanning cell': 39}, 'objects_per_image': {'min': 9, 'max': 36}, 'image_side': {'min': 267, 'max': 936}, 'digest': '20cf1d039c0b5b5b...'}}
+{'train': {'n': 50, 'objects': {'table': 50, 'table column': 199, 'table row': 368, 'table spanning cell': 19}, 'objects_per_image': {'min': 8, 'max': 34}, 'image_side': {'min': 193, 'max': 965}, 'digest': 'd189a035d5ec008a...'}}
+{'example': {'id': 'train-000', 'source_id': '1007.0920v1.1', 'paper_id': '1007.0920', 'paper_title': 'End-Host Distribution in Application-Layer Multicast: Main Issues and Solutions', 'paper_license': 'other:http://creativecommons.org/licenses/publicdomain/', 'grid': [8, 4]}, 'size': (546, 216), 'objects': [('table', [3.0, 3.0, 543.0, 213.0]), ('table row', [3.0, 3.0, 543.0, 31.1]), ('table row', [3.0, 31.1, 543.0, 58.5]), ('table row', [3.0, 58.5, 543.0, 83.4])]}
+{'probe': 'duplicate id', 'rejected': "duplicate id 'same'"}
+{'probe': 'box outside image', 'rejected': 'records[0]: objects[0] box [0.0, 0.0, 551.0, 20.0] must lie inside the (546, 216) image with x0 < x1 and y0 < '}
+{'probe': 'label outside the four', 'rejected': "records[0]: objects[0] label 'table column header' is not one of ('table', 'table column', 'table row', 'table"}
+{'probe': 'oversized image', 'rejected': 'records[0]: image side outside 16..MAX_IMAGE_SIDE=4096 px: (4097, 16)'}
+[colab] Executing cell 9/14 - table_transformer_structure-21...
+{'ceilings': {'MIN_IMAGE_SIDE': 16, 'MAX_IMAGE_SIDE': 4096, 'MAX_DETECTIONS': 125, 'LABELS': ['table', 'table column', 'table row', 'table column header', 'table projected row header', 'table spanning cell'], 'ADAPT_LABELS': ['table', 'table column', 'table row', 'table spanning cell'], 'RECOGNITION_THRESHOLD': 0.5}, 'contract': {'NUM_QUERIES': 125, 'D_MODEL': 256, 'DECODER_LAYERS': 6, 'PARAMETER_COUNT': 28828619}}
+{'probe_id': 'test-000', 'source_id': '1702.02925v1.7', 'reference_grid': [10, 7], 'reference_objects': 18, 'detections_at_threshold': 19, 'implied_grid': [10, 7], 'counts': {'table': 1, 'table column': 7, 'table row': 10, 'table column header': 1, 'table projected row header': 0, 'table spanning cell': 0}, 'seconds': 0.628, 'device': 'cuda:0', 'checks': {'at_most_num_queries': True, 'labels_in_vocabulary': True, 'scores_descending': True, 'boxes_inside_image': True}, 'findings': 1}
+{'verdict': 'sample-sanity', 'reason': '18 reference box(es) on one tutorial table; geometry sanity evidence, not a structure-recognition benchmark'}
+{'reference': 'table-0', 'box_iou': 0.93, 'n_reference': 1, 'n_detected': 1}
+{'reference': 'table row-0', 'box_iou': 0.782, 'n_reference': 10, 'n_detected': 10}
+{'reference': 'table row-1', 'box_iou': 0.765, 'n_reference': 10, 'n_detected': 10}
+{'reference': 'table row-2', 'box_iou': 0.76, 'n_reference': 10, 'n_detected': 10}
+{'reference': 'table row-3', 'box_iou': 0.739, 'n_reference': 10, 'n_detected': 10}
+{'reference': 'table row-4', 'box_iou': 0.75, 'n_reference': 10, 'n_detected': 10}
+{'reference': 'table row-5', 'box_iou': 0.709, 'n_reference': 10, 'n_detected': 10}
+{'reference': 'table row-6', 'box_iou': 0.709, 'n_reference': 10, 'n_detected': 10}
+{'reference': 'table row-7', 'box_iou': 0.726, 'n_reference': 10, 'n_detected': 10}
+{'reference': 'table row-8', 'box_iou': 0.747, 'n_reference': 10, 'n_detected': 10}
+{'reference': 'table row-9', 'box_iou': 0.719, 'n_reference': 10, 'n_detected': 10}
+{'reference': 'table column-0', 'box_iou': 0.779, 'n_reference': 7, 'n_detected': 7}
+{'reference': 'table column-1', 'box_iou': 0.966, 'n_reference': 7, 'n_detected': 7}
+{'reference': 'table column-2', 'box_iou': 0.963, 'n_reference': 7, 'n_detected': 7}
+{'reference': 'table column-3', 'box_iou': 0.97, 'n_reference': 7, 'n_detected': 7}
+{'reference': 'table column-4', 'box_iou': 0.965, 'n_reference': 7, 'n_detected': 7}
+{'reference': 'table column-5', 'box_iou': 0.944, 'n_reference': 7, 'n_detected': 7}
+{'reference': 'table column-6', 'box_iou': 0.773, 'n_reference': 7, 'n_detected': 7}
+<PIL.Image.Image image mode=RGB size=525x257 at 0x7BECF6822720>
+
+[Image saved to: /tmp/tmpr73plol4.png]
+[colab] Executing cell 10/14 - table_transformer_structure-24...
+{'grid_prior': {'map50': 0.3868, 'map75': 0.2514, 'map': 0.2621, 'ap50_per_label': {'table': 0.9184, 'table column': 0.3525, 'table row': 0.2761, 'table spanning cell': 0.0}, 'grid_exact_at_0.5': 0.0476, 'recall_at_0.5': {'table': 0.9524, 'table column': 0.5048, 'table row': 0.4596, 'table spanning cell': 0.0}, 'mean_best_iou': 0.5173, 'n': 21}, 'baseline': "a uniform grid of the training split's mean row and column counts over the whole image (grid prior)", 'prior_grid': {'rows': 7, 'columns': 4}}
+{'zero_shot': {'map50': 0.8873, 'map75': 0.7339, 'map': 0.6352, 'ap50_per_label': {'table': 0.9365, 'table column': 0.9998, 'table row': 0.8647, 'table spanning cell': 0.748}, 'grid_exact_at_0.5': 0.8571, 'recall_at_0.5': {'table': 0.9524, 'table column': 1.0, 'table row': 0.8758, 'table spanning cell': 0.6154}, 'mean_best_iou': 0.8127, 'n': 21}, 'policy': 'zero-shot checkpoint (its own heads, softmax over all seven classes)', 'seconds': 1.5}
+{'frozen_policy_call': 'frozen backbone, encoder and decoder + restricted heads', 'best_epoch': 1, 'head_final_loss': 0.1011, 'validation': {0: {'n': 23, 'loss': 0.7705022278039352, 'map50': 0.96953, 'map': 0.688214, 'grid_exact': 0.913043}, 1: {'n': 23, 'loss': 0.27906276091285376, 'map50': 0.924142, 'map': 0.794345, 'grid_exact': 0.826087}}, 'seconds': 109.4}
+{'frozen_policy_test': {'map50': 0.863, 'map75': 0.7616, 'map': 0.7197, 'ap50_per_label': {'table': 1.0, 'table column': 1.0, 'table row': 0.8505, 'table spanning cell': 0.6016}, 'grid_exact_at_0.5': 0.8095, 'recall_at_0.5': {'table': 1.0, 'table column': 1.0, 'table row': 0.9006, 'table spanning cell': 0.5385}, 'mean_best_iou': 0.9112, 'n': 21}, 'loss': 0.5084, 'verdict': 'measured-small-sample'}
+{'definitions': {'ap50': 'per label: average precision at IoU 0.50 over all ranked predictions of that label', 'ap75': 'per label: average precision at IoU 0.75', 'ap': 'per label: mean of the average precision at IoU 0.50, 0.55, ..., 0.95', 'map50': 'mean over the scored labels of ap50', 'map': 'mean over the scored labels of ap (the COCO primary metric averaged over classes)', 'recall_at_threshold': 'per label: fraction of reference objects matched (IoU >= 0.5) by a prediction of the same label at or above the operating threshold', 'precision_at_threshold': 'per label: fraction of predictions of that label at or above the operating threshold that match a reference object', 'grid_exact_at_threshold': 'fraction of tables whose surviving `table row` and `table column` counts both equal the reference counts', 'mean_best_iou': 'mean over reference objects of the IoU of their best-overlapping prediction of the same label, any score'}}
+{'frozen_vs_prior': 'frozen policy above the grid prior on mAP@0.5'}
+[colab] Executing cell 11/14 - table_transformer_structure-27...
+{'epoch': 1, 'stage': 'frozen backbone, encoder and decoder + restricted heads', 'train_loss': 0.1011, 'val_loss': 0.2791, 'val_map50': 0.9241, 'val_map': 0.7943, 'val_grid_exact': 0.8261}
+{'epoch': 2, 'stage': 'unfrozen last 2 decoder layers + restricted heads', 'train_loss': 0.1981, 'val_loss': 0.2762, 'val_map50': 0.9264, 'val_map': 0.7934, 'val_grid_exact': 1.0}
+{'epoch': 3, 'stage': 'unfrozen last 2 decoder layers + restricted heads', 'train_loss': 0.1944, 'val_loss': 0.3028, 'val_map50': 0.9251, 'val_map': 0.7729, 'val_grid_exact': 1.0}
+{'epoch': 4, 'stage': 'unfrozen last 2 decoder layers + restricted heads', 'train_loss': 0.1911, 'val_loss': 0.2842, 'val_map50': 0.9213, 'val_map': 0.7904, 'val_grid_exact': 0.8696}
+{'epoch': 0, 'stage': "copied-head zero-shot (the checkpoint's rows under a restricted softmax, untrained)", 'train_loss': None, 'val_loss': 0.7705, 'val_map50': 0.9695, 'val_map': 0.6882, 'val_grid_exact': 0.913}
+{'selected_policy': 'unfrozen last 2 decoder layers + restricted heads', 'best_epoch': 2, 'selection': "lowest validation DETR loss (epoch 0 = the checkpoint's own rows untrained, epoch 1 = the restricted heads trained on frozen features, later epochs = the unfreeze)", 'trainable_heads': 133897, 'trainable_layers': 3157504, 'total_parameters': 28828619, 'seconds': 120.6}
+[colab] Executing cell 12/14 - table_transformer_structure-30...
+{'map50': {'grid_prior': 0.3868, 'zero_shot': 0.8873, 'frozen_policy': 0.863, 'selected_policy': 0.8728}}
+{'map75': {'grid_prior': 0.2514, 'zero_shot': 0.7339, 'frozen_policy': 0.7616, 'selected_policy': 0.7675}}
+{'map': {'grid_prior': 0.2621, 'zero_shot': 0.6352, 'frozen_policy': 0.7197, 'selected_policy': 0.7255}}
+{'mean_best_iou': {'grid_prior': 0.5173, 'zero_shot': 0.8127, 'frozen_policy': 0.9112, 'selected_policy': 0.9081}}
+{'grid_exact_at_threshold': {'grid_prior': 0.0476, 'zero_shot': 0.8571, 'frozen_policy': 0.8095, 'selected_policy': 0.7619}}
+{'ap50[table]': {'grid_prior': 0.9184, 'zero_shot': 0.9365, 'frozen_policy': 1.0, 'selected_policy': 1.0}}
+{'recall_at_0.5[table]': {'grid_prior': 0.9524, 'zero_shot': 0.9524, 'frozen_policy': 1.0, 'selected_policy': 1.0}}
+{'ap50[table column]': {'grid_prior': 0.3525, 'zero_shot': 0.9998, 'frozen_policy': 1.0, 'selected_policy': 1.0}}
+{'recall_at_0.5[table column]': {'grid_prior': 0.5048, 'zero_shot': 1.0, 'frozen_policy': 1.0, 'selected_policy': 1.0}}
+{'ap50[table row]': {'grid_prior': 0.2761, 'zero_shot': 0.8647, 'frozen_policy': 0.8505, 'selected_policy': 0.872}}
+{'recall_at_0.5[table row]': {'grid_prior': 0.4596, 'zero_shot': 0.8758, 'frozen_policy': 0.9006, 'selected_policy': 0.913}}
+{'ap50[table spanning cell]': {'grid_prior': 0.0, 'zero_shot': 0.748, 'frozen_policy': 0.6016, 'selected_policy': 0.6191}}
+{'recall_at_0.5[table spanning cell]': {'grid_prior': 0.0, 'zero_shot': 0.6154, 'frozen_policy': 0.5385, 'selected_policy': 0.5385}}
+{'loss': {'frozen_policy': 0.5084, 'selected_policy': 0.5121}}
+{'delta_vs_frozen': {'map50': 0.0097, 'map75': 0.0059, 'map': 0.0058}}
+{'delta_vs_zero_shot': {'map50': -0.0145, 'map75': 0.0336, 'map': 0.0903}}
+{'selected_policy': 'unfrozen last 2 decoder layers + restricted heads'}
+{'verdicts': {'frozen_vs_prior': 'frozen policy above the grid prior on mAP@0.5', 'selected_above_prior_map50': True, 'selected_vs_frozen_map50': 'improved', 'selected_vs_frozen_map': 'improved', 'selected_vs_zero_shot_map50': 'worse', 'selected_vs_zero_shot_map': 'improved'}}
+{'spanning_cells_per_split': {'test': 13, 'validation': 39, 'train': 19}}
+{'verdicts': {'frozen_vs_prior': 'frozen policy above the grid prior on mAP@0.5', 'selected_above_prior_map50': True, 'selected_vs_frozen_map50': 'improved', 'selected_vs_frozen_map': 'improved', 'selected_vs_zero_shot_map50': 'worse', 'selected_vs_zero_shot_map': 'improved'}}
+{'report': 'outputs/table_transformer_structure_evaluation_report.json'}
+[colab] Executing cell 13/14 - table_transformer_structure-33...
+{'id': 'test-000', 'source_id': '1702.02925v1.7', 'reference': {'table': 1, 'table column': 7, 'table row': 10, 'table spanning cell': 0}, 'frozen': {'table': 1, 'table column': 7, 'table row': 10, 'table spanning cell': 0}, 'selected': {'table': 1, 'table column': 7, 'table row': 10, 'table spanning cell': 0}, 'checkpoint': {'table': 1, 'table column': 7, 'table row': 10, 'table column header': 1, 'table projected row header': 0, 'table spanning cell': 0}}
+{'id': 'test-001', 'source_id': '1108.4723v1.3', 'reference': {'table': 1, 'table column': 4, 'table row': 4, 'table spanning cell': 0}, 'frozen': {'table': 1, 'table column': 4, 'table row': 4, 'table spanning cell': 0}, 'selected': {'table': 1, 'table column': 4, 'table row': 4, 'table spanning cell': 0}, 'checkpoint': {'table': 1, 'table column': 4, 'table row': 4, 'table column header': 1, 'table projected row header': 0, 'table spanning cell': 0}}
+{'id': 'test-002', 'source_id': '1606.09371v1.2', 'reference': {'table': 1, 'table column': 4, 'table row': 7, 'table spanning cell': 0}, 'frozen': {'table': 1, 'table column': 4, 'table row': 7, 'table spanning cell': 0}, 'selected': {'table': 1, 'table column': 4, 'table row': 7, 'table spanning cell': 0}, 'checkpoint': {'table': 1, 'table column': 4, 'table row': 7, 'table column header': 1, 'table projected row header': 0, 'table spanning cell': 0}}
+<PIL.Image.Image image mode=RGB size=1058x574 at 0x7BECF668E5A0>
+
+[Image saved to: /tmp/tmp_w8wyemq.png]
+{'artifact': 'outputs/table_transformer_structure_adapter', 'format': 'org.valcorza.table-transformer-structure.adapter.v1', 'policy': 'unfrozen last 2 decoder layers + restricted heads', 'classes': ['table', 'table column', 'table row', 'table spanning cell'], 'tensors': 60, 'bytes': 13172204, 'sha256': '71285e5ca64031cd...'}
+{'reload_parity': {'queries_identical': True, 'map50_in_memory': 0.872763, 'map50_reloaded': 0.872763, 'classes_identical': True}, 'reloaded_policy': 'unfrozen last 2 decoder layers + restricted heads', 'reloaded_best_epoch': 2}
+['table_transformer_structure_adapter', 'table_transformer_structure_evaluation_report.json', 'table_transformer_structure_input_manifest.json', 'table_transformer_structure_preview.png', 'table_transformer_structure_result.json', 'table_transformer_structure_train.csv']
+[colab] Executing cell 14/14 - table_transformer_structure-36...
+{'experiment': 'skipped (RUN_EXPERIMENT = False); the default path above is complete'}
+[colab] Saving notebook with outputs to '/home/kurt/colab-runs/table-transformer-structure-pipeline-c88210b-a28da2/table_transformer_structure_colab_c88210b_colab-cli-t4_output.ipynb'...
