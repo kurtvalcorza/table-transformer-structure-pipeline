@@ -276,6 +276,25 @@ def split_summary(splits: Mapping[str, Sequence[Mapping[str, Any]]]) -> dict[str
     return out
 
 
+def _split_sizes(n_units: int, val_fraction: float, test_fraction: float) -> tuple[int, int, int]:
+    """(train, validation, test) split units that `split_dataset` cuts from `n_units` groups."""
+    n_test = max(1, round(n_units * test_fraction))
+    n_val = round(n_units * val_fraction)
+    return n_units - n_test - n_val, n_val, n_test
+
+
+def min_byod_records(*, val_fraction: float = 0.2, test_fraction: float = 0.2) -> dict[str, int]:
+    """The smallest BYOD set `split_dataset` accepts when every group holds one table: `MIN_RECORDS`
+    training tables and (when `val_fraction` > 0) at least one validation group, after at least one test
+    group is held out. With the default fractions that is 12 tables in 12 groups, split 8 / 2 / 2; groups
+    with several tables need fewer groups but the same 8 training tables."""
+    for n in range(1, MAX_RECORDS + 1):
+        train, val, test = _split_sizes(n, val_fraction, test_fraction)
+        if train >= MIN_RECORDS and (val >= 1 or val_fraction == 0):
+            return {"total": n, "train": train, "validation": val, "test": test}
+    raise ValueError("no dataset size satisfies these fractions")
+
+
 def split_dataset(
     records: Sequence[Mapping[str, Any]],
     *,
@@ -298,8 +317,7 @@ def split_dataset(
     rng = random.Random(seed)
     units = sorted(by_unit)
     rng.shuffle(units)
-    n_test = max(1, round(len(units) * test_fraction))
-    n_val = round(len(units) * val_fraction)
+    _n_train, n_val, n_test = _split_sizes(len(units), val_fraction, test_fraction)
     splits: dict[str, list[dict[str, Any]]] = {"test": [], "validation": [], "train": []}
     for name, chosen in (
         ("test", units[:n_test]),
@@ -310,10 +328,18 @@ def split_dataset(
             splits[name].extend(by_unit[unit])
     for part in splits.values():
         rng.shuffle(part)
+    need = min_byod_records(val_fraction=val_fraction, test_fraction=test_fraction)
+    advice = (
+        f"supply at least {need['total']} tables in as many groups (split {need['train']} / "
+        f"{need['validation']} / {need['test']}), or more tables per group"
+    )
     if len(splits["train"]) < MIN_RECORDS:
         raise ValueError(
-            f"split leaves {len(splits['train'])} training records; at least {MIN_RECORDS} are required"
+            f"split leaves {len(splits['train'])} training records from {len(units)} group(s); at least "
+            f"{MIN_RECORDS} are required — {advice}"
         )
+    if val_fraction > 0 and not splits["validation"]:
+        raise ValueError(f"split leaves no validation group from {len(units)} group(s) — {advice}")
     return splits
 
 
@@ -326,7 +352,9 @@ def load_byod_dataset(path: str | Path, *, require_group: bool = True) -> list[d
     of one `id` must agree on `file` and `group`."""
     source = Path(path)
     if source.is_dir():
-        table = (source / "structure.csv").read_text(encoding="utf-8")
+        if not (source / "structure.csv").is_file():
+            raise ValueError("BYOD folder must contain structure.csv")
+        table = (source / "structure.csv").read_text(encoding="utf-8-sig")
         base_dir = source.resolve()
 
         def loader(name: str) -> Image.Image:
@@ -337,7 +365,12 @@ def load_byod_dataset(path: str | Path, *, require_group: bool = True) -> list[d
 
     elif source.is_file() and source.suffix.lower() == ".zip":
         archive = zipfile.ZipFile(source)
-        names = [n for n in archive.namelist() if not n.endswith("/")]
+        names = [
+            n
+            for n in archive.namelist()
+            if not n.endswith("/")
+            and not any(part == "__MACOSX" or part.startswith(".") for part in Path(n).parts)
+        ]
         basenames = [Path(n).name for n in names]
         if len(set(basenames)) != len(basenames):
             duplicate = next(b for b in basenames if basenames.count(b) > 1)
@@ -345,21 +378,26 @@ def load_byod_dataset(path: str | Path, *, require_group: bool = True) -> list[d
         members = dict(zip(basenames, names, strict=True))
         if "structure.csv" not in members:
             raise ValueError("BYOD zip must contain structure.csv")
-        table = archive.read(members["structure.csv"]).decode("utf-8")
+        table = archive.read(members["structure.csv"]).decode("utf-8-sig")
         loader = lambda name: Image.open(io.BytesIO(archive.read(members[name])))  # noqa: E731
     else:
         raise ValueError(
             "BYOD datasets must be a directory or a .zip holding structure.csv and the image files"
         )
-    rows = list(csv.DictReader(io.StringIO(table)))
-    missing = {"id", "file", "label", "x_min", "y_min", "x_max", "y_max"} - set(
-        rows[0].keys() if rows else set()
-    )
+    reader = csv.DictReader(io.StringIO(table))
+    missing = {"id", "file", "label", "x_min", "y_min", "x_max", "y_max"} - set(reader.fieldnames or [])
     if missing:
         raise ValueError(f"structure.csv is missing columns {sorted(missing)}")
+    rows = list(reader)
+    if not rows:
+        raise ValueError(
+            "structure.csv has no data rows: add one row per structure box "
+            "(id, file, group, label, x_min, y_min, x_max, y_max)"
+        )
     grouped: dict[str, dict[str, Any]] = {}
     origin: dict[str, tuple[str, str]] = {}
-    for row in rows:
+    for line, row in enumerate(rows, start=2):  # line 1 is the header
+        where = f"structure.csv line {line} (file {row.get('file')!r})"
         group = (row.get("group") or "").strip()
         if require_group and not group:
             raise ValueError(
@@ -369,7 +407,10 @@ def load_byod_dataset(path: str | Path, *, require_group: bool = True) -> list[d
             )
         item = grouped.get(row["id"])
         if item is None:
-            image = loader(row["file"])
+            try:
+                image = loader(row["file"])
+            except (KeyError, FileNotFoundError, IsADirectoryError):
+                raise ValueError(f"{where}: names an image that is not in the dataset") from None
             image.load()
             item = {"id": row["id"], "image": image.convert("RGB"), "objects": []}
             if group:
@@ -381,12 +422,11 @@ def load_byod_dataset(path: str | Path, *, require_group: bool = True) -> list[d
                 f"structure.csv rows for id {row['id']!r} disagree on file or group "
                 f"({origin[row['id']]} vs {(row['file'], group)})"
             )
-        item["objects"].append(
-            {
-                "label": row["label"],
-                "box": [float(row["x_min"]), float(row["y_min"]), float(row["x_max"]), float(row["y_max"])],
-            }
-        )
+        try:
+            box = [float(row["x_min"]), float(row["y_min"]), float(row["x_max"]), float(row["y_max"])]
+        except (TypeError, ValueError):
+            raise ValueError(f"{where}: x_min, y_min, x_max and y_max must be numbers") from None
+        item["objects"].append({"label": row["label"], "box": box})
     return list(grouped.values())
 
 
