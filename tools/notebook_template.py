@@ -334,11 +334,10 @@ TEMPLATE = {
                 "    print({{'reference': metric['reference'], 'box_iou': round(metric['value'], 3), 'n_reference': metric['n_reference'], 'n_detected': metric['n_detected']}})\n"
                 "if report['verdict'] != 'sample-sanity':  # a contract check on the report itself, not a quality claim\n"
                 "    raise RuntimeError(f\"evaluation_report returned verdict {{report['verdict']!r}} for a record with reference boxes\")\n"
-                "try:\n"
-                "    from IPython.display import display\n"
+                "try:  # `display` is provided by the isolated worker (and by any IPython kernel); the worker has no IPython\n"
                 "    display(draw_objects(image, probe_record['objects'], result['detections']))\n"
-                "except ImportError:\n"
-                "    print({{'preview': 'IPython display unavailable; the preview PNG is written in Section 9'}})"
+                "except NameError:\n"
+                "    print({{'preview': 'display unavailable; the preview PNG is written in Section 9'}})"
             ),
         },
         {
@@ -575,10 +574,9 @@ TEMPLATE = {
                 "    sheet.paste(panel, (0, y))\n"
                 "    y += panel.height + 8\n"
                 "sheet.save('outputs/{stem}_preview.png')\n"
-                "try:\n"
-                "    from IPython.display import display\n"
+                "try:  # `display` is provided by the isolated worker (and by any IPython kernel)\n"
                 "    display(sheet)\n"
-                "except ImportError:\n"
+                "except NameError:\n"
                 "    pass\n\n"
                 "artifact_dir = Path('outputs/{stem}_adapter')\n"
                 "shutil.rmtree(artifact_dir, ignore_errors=True)\n"
@@ -765,6 +763,6 @@ TEMPLATE = {
         "- PubTables-1M (Smock, Pesala, Abraham, 2021): https://arxiv.org/abs/2110.00061\n"
         "- End-to-End Object Detection with Transformers (DETR; the set loss and Hungarian matching, Carion et al., 2020): https://arxiv.org/abs/2005.12872\n"
         "- SciTSR: Complicated Table Structure Recognition (Chi et al., 2019): https://arxiv.org/abs/1908.04729 — the public-domain subset SciTSR-PD: https://huggingface.co/datasets/bevaya/SciTSR-pd\n"
-        "- DIMER Notebook Specification 2.0 and Model Card Specification 1.1 (fleet specs in the ml-worker repository)"
+        "- DIMER Notebook Specification 2.2 and Model Card Specification 1.1 (fleet specs in the ml-worker repository)"
     ),
 }

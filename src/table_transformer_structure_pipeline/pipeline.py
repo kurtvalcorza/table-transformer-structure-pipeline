@@ -361,11 +361,16 @@ class TableTransformerStructurePipeline:
         `evaluate_zero_shot` and a new adapt() read the untouched checkpoint. Returns the names of the
         restored tensors."""
         model, _ = self._require_model()
-        restored = sorted(self._base_layers)
+        params = dict(model.named_parameters())
+        # Only tensors whose live value differs from the base count as restored (as t5-base-text2text
+        # 93a578f), so a repeat restore, or an adapt after one, does not claim an earlier run changed
+        # anything.
+        restored = sorted(
+            n for n, base in self._base_layers.items() if not bool((params[n].detach() == base).all())
+        )
         if restored:
             import torch
 
-            params = dict(model.named_parameters())
             with torch.no_grad():
                 for name in restored:
                     params[name].copy_(self._base_layers[name])
