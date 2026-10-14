@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-NOTEBOOK = REPO / "tutorials" / "DIMER_Table_Intelligence_Workshop.ipynb"
+NOTEBOOK = REPO / "tutorials" / "DIMER_Table_Intelligence_Notebook.ipynb"
 SPEC = REPO / "docs" / "table-intelligence-workshop-spec.md"
 STAGE_FILE = REPO / "tools" / "table_intelligence_workshop.py"
 LOCK_FILE = REPO / "tools" / "table-intelligence-workshop-requirements.lock"
@@ -57,7 +57,8 @@ def test_spec_is_complete():
 
 def test_metadata():
     meta = load()["metadata"]["dimer"]
-    assert meta["notebook_spec"] == "2.1"
+    assert meta["notebook_spec"] == "2.5"
+    assert meta["notebook_kind"] == "WORKSHOP"
     assert meta["notebook_mode"] == "WORKSHOP"
     assert meta["standalone"] is True
 

@@ -358,7 +358,7 @@ def test_complex_probe_keeps_only_this_runs_panels():
 
 def test_notebook_records_the_review_revision():
     meta = notebook()["metadata"]
-    assert meta["workshop_revision"] == "0.3.0-candidate"
+    assert meta["workshop_revision"] == "0.4.0-candidate"
     record = meta["dimer"]["review_revisions"][0]
     assert record["base_commit"] == "c218d3119e157293949862d6972e77d4a029c6b0"
     assert {"TBL-M1", "TBL-M2", "TBL-M3"} <= set(record["fixed"])

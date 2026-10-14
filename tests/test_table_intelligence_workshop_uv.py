@@ -284,8 +284,8 @@ def test_markdown_and_metadata_state_the_platform_and_no_restart():
     meta = notebook()["metadata"]
     dimer = meta["dimer"]
     assert dimer["runtime_environment"]["platform"].startswith("Linux x86_64 only")
-    assert meta["workshop_revision"] == "0.3.0-candidate"
-    revision = dimer["review_revisions"][-1]
+    assert meta["workshop_revision"] == "0.4.0-candidate"
+    revision = next(r for r in dimer["review_revisions"] if r.get("revision") == "0.3.0-candidate")
     assert revision["revision"] == "0.3.0-candidate" and revision["base_commit"].startswith("a043211")
     assert dimer["clean_runtime_evidence"] == "pending"
 
@@ -293,6 +293,9 @@ def test_markdown_and_metadata_state_the_platform_and_no_restart():
 def test_cell_ids_are_stable_and_the_carrier_precedes_the_bootstrap():
     ids = [c["id"] for c in cells()]
     assert len(ids) == len(set(ids))
-    assert [i for i in ids if i != "uvcarrier"] == [f"dimer-table-workshop-{n:02d}" for n in range(67)]
+    # Cells added after 0.2.0 carry their own ids (uvcarrier; use-notice and references since 0.4.0).
+    named = ("uvcarrier", "use-notice", "references")
+    assert [i for i in ids if i not in named] == [f"dimer-table-workshop-{n:02d}" for n in range(67)]
+    assert ids.index("use-notice") == 1 and ids[-1] == "references"
     assert ids.index("dimer-table-workshop-04") < ids.index("uvcarrier") == ids.index(BOOT_ID) - 1
     assert cells()[ids.index("uvcarrier")]["metadata"] == {"jupyter": {"source_hidden": True}}

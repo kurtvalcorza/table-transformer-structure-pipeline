@@ -1,4 +1,4 @@
-# Isolated environment of DIMER_Table_Intelligence_Workshop.ipynb (2026-10-03).
+# Isolated environment of DIMER_Table_Intelligence_Notebook.ipynb (2026-10-03).
 # Exact pins carried over from the notebook's former in-kernel install (the PINS dict of the section 4 cell):
 torch==2.14.0
 torchvision==0.29.0

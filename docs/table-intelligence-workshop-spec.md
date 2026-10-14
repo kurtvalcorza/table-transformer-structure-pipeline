@@ -2,7 +2,7 @@
 
 ## Table Detection → Structure Recognition → Table Reconstruction → TAPAS QA
 
-**Proposed filename:** `DIMER_Table_Intelligence_Workshop.ipynb`  
+**Proposed filename:** `DIMER_Table_Intelligence_Workshop.ipynb` (renamed `tutorials/DIMER_Table_Intelligence_Notebook.ipynb` in revision 0.4.0-candidate, 2026-10-15: GDL15, review finding TBL2-S1)  
 **DIMER Notebook Specification:** `2.1`  
 **Profile:** `TASK-INFERENCE`  
 **Pedagogical mode:** `WORKSHOP`  
@@ -2747,7 +2747,7 @@ ml-worker/
     dimer/
       workshops/
         table-intelligence/
-          DIMER_Table_Intelligence_Workshop.ipynb
+          DIMER_Table_Intelligence_Notebook.ipynb
           README.md
 
           data/
