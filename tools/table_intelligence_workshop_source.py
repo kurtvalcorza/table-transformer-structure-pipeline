@@ -1,5 +1,5 @@
 # ruff: noqa: E501,I001
-"""Source cells for the DIMER Table Intelligence notebook (tutorials/DIMER_Table_Intelligence_Notebook.ipynb)."""
+"""Source cells for the DIMER Table Intelligence notebook (tutorials/DIMER_Table_Intelligence_Workshop.ipynb)."""
 CELLS = [
   {
     "kind": "markdown",

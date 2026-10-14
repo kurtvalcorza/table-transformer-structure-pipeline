@@ -1,4 +1,4 @@
-# Hash lock of the isolated environment of tutorials/DIMER_Table_Intelligence_Notebook.ipynb.
+# Hash lock of the isolated environment of tutorials/DIMER_Table_Intelligence_Workshop.ipynb.
 # Target: CPython 3.12.12 on Linux x86_64 (manylinux_2_28), wheels only, installed with
 #   uv pip install --require-hashes --only-binary :all: -r requirements.lock.txt
 # Direct pins (table-intelligence-workshop-requirements.in) are the versions the notebook pinned for its former

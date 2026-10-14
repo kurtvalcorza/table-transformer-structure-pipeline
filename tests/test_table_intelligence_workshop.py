@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-NOTEBOOK = REPO / "tutorials" / "DIMER_Table_Intelligence_Notebook.ipynb"
+NOTEBOOK = REPO / "tutorials" / "DIMER_Table_Intelligence_Workshop.ipynb"
 SPEC = REPO / "docs" / "table-intelligence-workshop-spec.md"
 STAGE_FILE = REPO / "tools" / "table_intelligence_workshop.py"
 LOCK_FILE = REPO / "tools" / "table-intelligence-workshop-requirements.lock"

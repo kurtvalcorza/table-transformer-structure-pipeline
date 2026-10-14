@@ -1,4 +1,4 @@
-"""Stages of DIMER_Table_Intelligence_Notebook.ipynb, run in its isolated environment.
+"""Stages of DIMER_Table_Intelligence_Workshop.ipynb, run in its isolated environment.
 
 The notebook carries this file byte-for-byte, writes it next to the hash-locked requirements, and runs
 every stage as ``python table_intelligence_workshop.py --config <json> --stage <name>`` with the

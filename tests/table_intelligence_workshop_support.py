@@ -17,7 +17,7 @@ import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-NOTEBOOK = ROOT / "tutorials" / "DIMER_Table_Intelligence_Notebook.ipynb"
+NOTEBOOK = ROOT / "tutorials" / "DIMER_Table_Intelligence_Workshop.ipynb"
 STAGE_FILE = ROOT / "tools" / "table_intelligence_workshop.py"
 LOCK_FILE = ROOT / "tools" / "table-intelligence-workshop-requirements.lock"
 REQUIREMENTS_IN = ROOT / "tools" / "table-intelligence-workshop-requirements.in"

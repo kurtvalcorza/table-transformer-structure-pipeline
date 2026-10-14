@@ -1,8 +1,7 @@
 # ruff: noqa: E501,I001
-"""Generate the DIMER Table Intelligence notebook (tutorials/DIMER_Table_Intelligence_Notebook.ipynb).
+"""Generate the DIMER Table Intelligence notebook (tutorials/DIMER_Table_Intelligence_Workshop.ipynb).
 
-The file was named ``DIMER_Table_Intelligence_Workshop.ipynb`` up to revision 0.3.0-candidate; it was renamed in
-0.4.0-candidate (TBL2-S1, owner ruling B, GDL15).
+The file name keeps the WORKSHOP kind pattern (KND2); titles and prose call the artifact a notebook (GDL15).
 
 Besides the cells of ``table_intelligence_workshop_source.py`` the notebook carries two files byte-for-byte,
 in its carrier cell (id ``uvcarrier``), and verifies their SHA-256 before use:
@@ -22,7 +21,7 @@ import json
 from pathlib import Path
 from table_intelligence_workshop_source import CELLS
 
-NOTEBOOK_NAME = "DIMER_Table_Intelligence_Notebook.ipynb"
+NOTEBOOK_NAME = "DIMER_Table_Intelligence_Workshop.ipynb"
 TOOLS = Path(__file__).resolve().parent
 CARRIED = {
     "table_intelligence_workshop.py": TOOLS / "table_intelligence_workshop.py",
@@ -84,7 +83,6 @@ DIMER_METADATA = {
             "base_commit": "049aeeb7339a270f17c8db294313911a4c00894b",
             "review": "W20 notebook review of blob 179d8620 (prefix TBL2, 2026-10-14)",
             "fixed": ["TBL2-M1", "TBL2-m1", "TBL2-m2", "TBL2-m3", "TBL2-m4", "TBL2-m5", "TBL2-m6", "TBL2-m7", "TBL2-m8", "TBL2-m9", "TBL2-S1", "TBL2-S2"],
-            "renamed_from": "tutorials/DIMER_Table_Intelligence_Workshop.ipynb",
             "default_path_numbers_changed": False
         }
     ],

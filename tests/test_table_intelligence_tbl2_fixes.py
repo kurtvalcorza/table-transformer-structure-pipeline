@@ -213,11 +213,11 @@ def test_disclosures_lineage_references_and_notice():
         assert sum(f"[{n}]" in joined(c) for c in cells() if c["id"] != "references") >= 1, n
 
 
-def test_notebook_name_and_title_use_notebook_not_workshop():
-    assert NOTEBOOK.name == "DIMER_Table_Intelligence_Notebook.ipynb"
+def test_title_uses_notebook_and_file_name_keeps_the_workshop_kind_pattern():
+    assert NOTEBOOK.name == "DIMER_Table_Intelligence_Workshop.ipynb"  # KND2: the kind word in the file name is an identifier
     title = joined(cells()[0]).splitlines()[0]
     assert title == "# DIMER Notebook: Table Intelligence"
     meta = notebook()["metadata"]["dimer"]
     assert meta["notebook_spec"] == "2.5" and meta["notebook_kind"] == "WORKSHOP"
-    assert meta["review_revisions"][-1]["renamed_from"] == "tutorials/DIMER_Table_Intelligence_Workshop.ipynb"
+    assert "renamed_from" not in meta["review_revisions"][-1]
     assert 'print("DIMER Notebook: Table Intelligence")' in fn_src("stage_summary")
