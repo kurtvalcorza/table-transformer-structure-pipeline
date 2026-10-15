@@ -687,12 +687,38 @@ def contains(box,x,y):
     return box[0]<=x<=box[2] and box[1]<=y<=box[3]
 
 
+# Codex #5: the canonical path's text is an oracle twice over: a perfect transcription, already grouped into logical
+# cells. TEXT_VISIBILITY decides which of those cells a crop may use: "center-in-crop" keeps a cell only when its
+# centre lies inside the crop image the structure model saw; "all" keeps every cell of the table.
+TEXT_VISIBILITY = "center-in-crop"
+
+
+def center_in_crop(c,crop_box):
+    b=c["crop_box"]; x=(b[0]+b[2])/2; y=(b[1]+b[3])/2
+    return 0<=x<=crop_box[2]-crop_box[0] and 0<=y<=crop_box[3]-crop_box[1]
+
+
+def headers_equal_gold(table,item):
+    """Reconstruction fidelity (codex #6): the reconstructed header row equals the gold header row."""
+    return bool(table) and [norm_text(x) for x in table[0]]==[norm_text(x) for x in item["grid"][0]]
+
+
+def table_equals_gold(table,item):
+    """Reconstruction fidelity (codex #6): same shape and every normalized cell equal to the gold table."""
+    gold=item["grid"]
+    return bool(table) and len(table)==len(gold) and all(
+        len(a)==len(b) and all(norm_text(x)==norm_text(y) for x,y in zip(a,b)) for a,b in zip(table,gold))
+
+
 def reconstruct_table(item,grid,crop_box):
     if not grid["valid_geometry"] or not grid["rows"] or not grid["columns"]:
         return {"valid":False,"reason":"grid_invalid","table":None,"mapped":0,"unmapped":len(item["cells"]),"ambiguous":0}
     strings=[[[] for _ in grid["columns"]] for __ in grid["rows"]]
     mapped=unmapped=ambiguous=correct=0
     simple=[c for c in source_cells_in_crop(item,crop_box) if c["row_start"]==c["row_end"] and c["col_start"]==c["col_end"]]
+    outside=sum(1 for c in simple if not center_in_crop(c,crop_box))
+    if TEXT_VISIBILITY=="center-in-crop":
+        simple=[c for c in simple if center_in_crop(c,crop_box)]
     for c in simple:
         b=c["crop_box"]; x=(b[0]+b[2])/2; y=(b[1]+b[3])/2
         ris=[i for i,r in enumerate(grid["rows"]) if contains(r["box"],x,y)]
@@ -718,6 +744,7 @@ def reconstruct_table(item,grid,crop_box):
         "mapped":mapped,"unmapped":unmapped,"ambiguous":ambiguous,
         "assignment_accuracy":correct/max(1,len(simple)),
         "headers_valid":valid_headers,
+        "text_cells_outside_crop":outside,
     }
 
 
@@ -818,12 +845,41 @@ def norm_cell(s):
     return " ".join(str(s).lower().split())
 
 
+def final_denotation(result):
+    """The pipeline's one final answer: the selected cell strings when TAPAS predicts NONE, otherwise the number its
+    predicted operator computes from them (None when they do not parse)."""
+    return result["cells"] if result["aggregation"]=="NONE" else result["numeric_answer"]
+
+
 def denotation_correct(result,record):
+    """Score the final denotation built from the predicted cells and the predicted operator (codex #3). A lookup
+    answered with SUM/AVERAGE/COUNT is correct only when that number equals the single gold cell's value."""
     gold=record["gold_denotation"]
+    predicted=final_denotation(result)
+    if predicted is None:
+        return False
     if isinstance(gold,list):
-        return sorted(norm_cell(x) for x in result["cells"])==sorted(norm_cell(x) for x in gold)
-    value=result["numeric_answer"]
-    return value is not None and abs(float(value)-float(gold))<=1e-6
+        if isinstance(predicted,list):
+            return sorted(norm_cell(x) for x in predicted)==sorted(norm_cell(x) for x in gold)
+        value=parse_number(gold[0]) if len(gold)==1 else None
+        return value is not None and abs(float(predicted)-value)<=1e-6
+    if isinstance(predicted,list):
+        return False
+    return abs(float(predicted)-float(gold))<=1e-6
+
+
+def selected_cells_match(result,record):
+    """Diagnostic only: for a lookup, do the selected cell strings equal the gold cell, whatever the operator?"""
+    gold=record["gold_denotation"]
+    if not isinstance(gold,list):
+        return None
+    return sorted(norm_cell(x) for x in result["cells"])==sorted(norm_cell(x) for x in gold)
+
+
+def coordinates_exact(result,record):
+    """Diagnostic: the selected (row, column) set equals the gold coordinates. Meaningful on the gold table; a
+    reconstructed table can index its cells differently."""
+    return {tuple(x) for x in result["coordinates"]}=={tuple(x) for x in record["gold_coordinates"]}
 
 
 def score_path(path_name,table_provider):
@@ -838,7 +894,8 @@ def score_path(path_name,table_provider):
                 "question":record["question"],"gold_aggregation":record["gold_aggregation"],
                 "predicted_aggregation":None,"gold_denotation":record["gold_denotation"],
                 "predicted_denotation":None,"denotation_correct":False,
-                "aggregation_correct":False,"selected_cells":[],"coordinates":[],
+                "aggregation_correct":False,"selected_cells_match":None,"coordinates_exact":False,
+                "selected_cells":[],"coordinates":[],
                 "pipeline_status":status,"latency_seconds":None,
             })
             continue
@@ -849,8 +906,10 @@ def score_path(path_name,table_provider):
             "question_id":record["id"],"table_id":record["table_id"],"path":path_name,
             "question":record["question"],"gold_aggregation":record["gold_aggregation"],
             "predicted_aggregation":result["aggregation"],"gold_denotation":record["gold_denotation"],
-            "predicted_denotation":result["numeric_answer"] if record["gold_aggregation"]!="NONE" else result["cells"],
+            "predicted_denotation":final_denotation(result),
             "denotation_correct":denotation_correct(result,record),
+            "selected_cells_match":selected_cells_match(result,record),
+            "coordinates_exact":coordinates_exact(result,record),
             "aggregation_correct":result["aggregation"]==record["gold_aggregation"],
             "selected_cells":result["cells"],"coordinates":result["coordinates"],
             "pipeline_status":"ok","latency_seconds":times[-1],
@@ -880,6 +939,8 @@ def qa_summary(rows):
         "denotation_accuracy":float(np.mean([r["denotation_correct"] for r in rows])),
         "aggregation_accuracy":float(np.mean([r["aggregation_correct"] for r in rows])),
         "valid_questions":sum(r["pipeline_status"]=="ok" for r in rows),
+        "lookups_with_matching_cells":sum(1 for r in rows if r.get("selected_cells_match")),
+        "coordinate_accuracy":float(np.mean([bool(r.get("coordinates_exact")) for r in rows])),
     }
 
 
@@ -1173,8 +1234,10 @@ def stage_detection(args):
     below={}
     for item in canonical_tables:
         if item["selected_detection"] is None:
-            scores=[x["score"] for x in detect_table(item["page"],threshold=0.0)]
-            below[item["source_id"]]=round(max(scores),4) if scores else "none"
+            rejected=detect_table(item["page"],threshold=0.0)  # sorted by score, highest first
+            below[item["source_id"]]=({"score":round(rejected[0]["score"],4),
+                                       "iou_with_reference":round(box_iou(rejected[0]["box"],item["page_gt_box"]),4)}
+                                      if rejected else "none")
     if below:
         print({"detection_threshold":DETECTION_THRESHOLD,"best_table_score_below_threshold":below})
 
@@ -1195,9 +1258,13 @@ def stage_detection_metrics(args):
         det_pred_lists.append(preds)
         det_refs.append([{"label":"table","box":item["page_gt_box"]}])
         best=max([box_iou(x["box"],item["page_gt_box"]) for x in item["detections"]],default=0.0)
+        # Codex #7: the pipeline crops the highest-scoring detection, which need not be the best-overlapping one.
+        chosen=item.get("selected_detection")
+        selected=box_iou(chosen["box"],item["page_gt_box"]) if chosen else 0.0
         det_rows.append({
             "table_id":item["source_id"],"predicted":bool(item["detections"]),
             "best_iou":best,"hit50":best>=0.5,"hit75":best>=0.75,
+            "selected_iou":selected,"selected_hit50":selected>=0.5,
         })
 
     det_metrics={
@@ -1212,6 +1279,9 @@ def stage_detection_metrics(args):
     detected_ious=[r["best_iou"] for r in det_rows if r["predicted"]]
     det_metrics["detected_pages"]=len(detected_ious)
     det_metrics["mean_best_iou_detected"]=float(np.mean(detected_ious)) if detected_ious else None
+    det_metrics["selected_hit50"]=float(np.mean([r["selected_hit50"] for r in det_rows]))
+    det_metrics["mean_selected_iou"]=float(np.mean([r["selected_iou"] for r in det_rows]))
+    det_metrics["ap_scope"]="threshold-filtered: only detections above the detection threshold are ranked"
     print(det_metrics)
 
 
@@ -1318,6 +1388,8 @@ def stage_structure_metrics(args):
                 "grid_shape_exact":rows_exact and cols_exact,
                 "mean_row_iou":float(np.mean(best_r)) if best_r else 0.0,
                 "mean_column_iou":float(np.mean(best_c)) if best_c else 0.0,
+                # Codex #8: the IoUs above cover only the reference boxes that survive clipping to this crop.
+                "reference_rows_retained":len(gold_rows),"reference_columns_retained":len(gold_cols),
             })
 
     for path_name in ("gold_crop","detected_crop"):
@@ -1480,6 +1552,15 @@ def stage_qa(args):
     print("Gold:",qa_summary(gold_qa))
     print("Structure-only:",qa_summary(structure_qa))
     print("End-to-end:",qa_summary(end_to_end_qa))
+    # Codex #10 (display only): accuracy by operator and per table; the 50 questions share tables and papers.
+    for name,rows in (("gold_table",gold_qa),("structure_only",structure_qa),("end_to_end",end_to_end_qa)):
+        by_op=defaultdict(list); by_table=defaultdict(list)
+        for r in rows:
+            by_op[r["gold_aggregation"]].append(r["denotation_correct"]); by_table[r["table_id"]].append(r["denotation_correct"])
+        print(name,"by operator:",{k:f"{sum(v)}/{len(v)}" for k,v in by_op.items()})
+        print(name,"per table:",{k:f"{sum(v)}/{len(v)}" for k,v in by_table.items()})
+    print({"tables":len(canonical_tables),"papers":len({x.get("paper_id") for x in canonical_tables}),
+           "questions":len(qa_records),"note":"questions share tables and papers; they are not independent examples"})
 
 
 @stage("waterfall")
@@ -1512,47 +1593,53 @@ def stage_waterfall(args):
             "end_to_end_denotation_accuracy":qa_summary(end_to_end_qa)["denotation_accuracy"],
         },
     }
-    # TBL2-M1: attribute lost answers by comparing each path with the one before it, question by question.
-    # score_path walks qa_records in order for every path, so position i is the same question on all three.
+    # TBL2-M1 / codex #1-#2: compare paths question by question. The gold-table path is a reference diagnostic, not a
+    # ceiling: a changed table can turn a wrong gold answer right as well as a right one wrong, and losses and gains
+    # can cancel. score_path walks qa_records in order for every path, so position i is the same question on all three.
     paths=list(zip(gold_qa,structure_qa,end_to_end_qa))
 
     def compare(pairs):
         lost=[b for a,b in pairs if a["denotation_correct"] and not b["denotation_correct"]]
+        gained=[b for a,b in pairs if b["denotation_correct"] and not a["denotation_correct"]]
         return {
-            "lost":len(lost),
-            "gained":sum(1 for a,b in pairs if b["denotation_correct"] and not a["denotation_correct"]),
+            "lost":len(lost),"gained":len(gained),"net_correct_change":len(gained)-len(lost),
             "lost_by_status":dict(Counter("answered_differently" if b["pipeline_status"]=="ok" else b["pipeline_status"] for b in lost)),
         }
 
     waterfall["loss_attribution"]={
-        "unit":"questions out of qa.questions; each comparison sets a path against the path before it, question by question",
+        "unit":"questions out of qa.questions, compared question by question; lost and gained are gross counts and net_correct_change = gained - lost",
         "wrong_on_gold_table":sum(1 for g,_s,_e in paths if not g["denotation_correct"]),
         "gold_table_to_structure_only":compare([(g,s) for g,s,_e in paths]),
         "structure_only_to_end_to_end":compare([(s,e) for _g,s,e in paths]),
-        "lost_vs_gold_table":{
-            "structure_only":waterfall["qa"]["gold_table_correct"]-waterfall["qa"]["structure_only_correct"],
-            "end_to_end":waterfall["qa"]["gold_table_correct"]-waterfall["qa"]["end_to_end_correct"],
+        "gold_table_to_end_to_end":compare([(g,e) for g,_s,e in paths]),
+        "net_correct_change_vs_gold":{
+            "structure_only":waterfall["qa"]["structure_only_correct"]-waterfall["qa"]["gold_table_correct"],
+            "end_to_end":waterfall["qa"]["end_to_end_correct"]-waterfall["qa"]["gold_table_correct"],
         },
     }
     print(json.dumps(waterfall,indent=2))
 
-    # Display only: each question not answered correctly on all three paths, and where it was first lost.
-    def first_lost(g,s,e):
-        if not g["denotation_correct"]:
-            return "TAPAS on the gold table"
-        if not s["denotation_correct"]:
-            return "gold-crop structure/reconstruction ("+("answered differently" if s["pipeline_status"]=="ok" else s["pipeline_status"])+")"
-        if e["pipeline_status"]=="detection_miss":
-            return "detection miss"
-        return "detected crop ("+("answered differently" if e["pipeline_status"]=="ok" else e["pipeline_status"])+")"
+    # Display only: each question not right on all three paths, its three correctness states and its transitions.
+    def transitions(g,s,e):
+        out=[]
+        if not g["denotation_correct"]:out.append("wrong on the gold table")
+        if g["denotation_correct"] and not s["denotation_correct"]:
+            out.append("lost gold -> structure-only ("+("answered differently" if s["pipeline_status"]=="ok" else s["pipeline_status"])+")")
+        if s["denotation_correct"] and not g["denotation_correct"]:out.append("recovered on structure-only")
+        if s["denotation_correct"] and not e["denotation_correct"]:
+            if e["pipeline_status"]=="detection_miss":out.append("lost structure-only -> end-to-end (detection miss)")
+            elif e["pipeline_status"]!="ok":out.append("lost structure-only -> end-to-end ("+e["pipeline_status"]+" on the detected crop)")
+            else:out.append("lost structure-only -> end-to-end (answered differently; associated with the crop-path change)")
+        if e["denotation_correct"] and not s["denotation_correct"]:out.append("recovered end to end")
+        return "; ".join(out)
 
     trace=[(i,g,s,e) for i,(g,s,e) in enumerate(paths)
            if not (g["denotation_correct"] and s["denotation_correct"] and e["denotation_correct"])]
     mark=lambda r:"yes" if r["denotation_correct"] else "no"
     print(f"\nPer-question trace: {len(trace)} of {len(paths)} questions were not answered correctly on all three paths")
-    print(f"{'question':<12} {'table':<18} {'gold':<5} {'struct':<7} {'e2e':<4} first lost at")
+    print(f"{'question':<12} {'table':<18} {'gold':<5} {'struct':<7} {'e2e':<4} transitions")
     for i,g,s,e in trace:
-        print(f"{str(g.get('question_id',i)):<12} {str(g.get('table_id','')):<18} {mark(g):<5} {mark(s):<7} {mark(e):<4} {first_lost(g,s,e)}")
+        print(f"{str(g.get('question_id',i)):<12} {str(g.get('table_id','')):<18} {mark(g):<5} {mark(s):<7} {mark(e):<4} {transitions(g,s,e)}")
 
 
 @stage("checkpoint")
@@ -1568,6 +1655,8 @@ def stage_checkpoint(args):
             "det_crop_pred_shape":[len(item["det_grid_pred"]["rows"]),len(item["det_grid_pred"]["columns"])],
             "cell_accuracy_gold_crop":item["gold_recon"].get("assignment_accuracy"),
             "cell_accuracy_detected_crop":item["det_recon"].get("assignment_accuracy"),
+            "table_equals_gold_gold_crop":table_equals_gold(item["gold_recon"].get("table"),item),
+            "table_equals_gold_detected_crop":table_equals_gold(item["det_recon"].get("table"),item),
         })
 
 
@@ -1640,11 +1729,12 @@ def stage_exports(args):
     tables_dir=out_dir/"tables"
     tables_dir.mkdir(exist_ok=True)
 
-    write_csv(out_dir/"table_detection.csv",det_rows,["table_id","predicted","best_iou","hit50","hit75"])
+    write_csv(out_dir/"table_detection.csv",det_rows,["table_id","predicted","best_iou","hit50","hit75","selected_iou","selected_hit50"])
     write_csv(
         out_dir/"structure_metrics.csv",structure_rows,
         ["table_id","path","status","gold_rows","predicted_rows","gold_columns","predicted_columns",
-         "row_count_exact","column_count_exact","grid_shape_exact","mean_row_iou","mean_column_iou"]
+         "row_count_exact","column_count_exact","grid_shape_exact","mean_row_iou","mean_column_iou",
+         "reference_rows_retained","reference_columns_retained"]
     )
 
     recon_rows=[]
@@ -1658,7 +1748,11 @@ def stage_exports(args):
                 "predicted_columns":len(item["gold_grid_pred"]["columns"] if path_name=="gold_crop" else item["det_grid_pred"]["columns"]),
                 "mapped_cells":r.get("mapped",0),"unmapped_cells":r.get("unmapped",0),
                 "ambiguous_cells":r.get("ambiguous",0),"cell_assignment_accuracy":r.get("assignment_accuracy"),
-                "header_exact":r.get("headers_valid",False),"valid_for_tapas":r.get("valid",False),
+                "headers_valid":r.get("headers_valid",False),
+                "headers_equal_gold":headers_equal_gold(r.get("table"),item),
+                "table_equals_gold":table_equals_gold(r.get("table"),item),
+                "text_cells_outside_crop":r.get("text_cells_outside_crop",0),
+                "valid_for_tapas":r.get("valid",False),
             })
             if r.get("table") is not None:
                 (tables_dir/f"{item['source_id'].replace('/','_')}_{path_name}.json").write_text(
@@ -1670,7 +1764,8 @@ def stage_exports(args):
     write_csv(
         out_dir/"reconstruction_metrics.csv",recon_rows,
         ["table_id","path","gold_rows","gold_columns","predicted_rows","predicted_columns","mapped_cells",
-         "unmapped_cells","ambiguous_cells","cell_assignment_accuracy","header_exact","valid_for_tapas"]
+         "unmapped_cells","ambiguous_cells","cell_assignment_accuracy","headers_valid","headers_equal_gold",
+         "table_equals_gold","text_cells_outside_crop","valid_for_tapas"]
     )
 
     with open(out_dir/"qa_questions.jsonl","w",encoding="utf-8") as f:
@@ -1707,7 +1802,8 @@ def stage_exports(args):
 
     provenance={
         "created_utc":datetime.now(timezone.utc).isoformat(),
-        "notebook_spec":"2.1","profile":"TASK-INFERENCE","pedagogical_mode":"WORKSHOP",
+        "notebook_spec":"2.5","notebook_revision":"0.4.0-candidate","notebook_kind":"WORKSHOP",
+        "profile":"TASK-INFERENCE","pedagogical_mode":"WORKSHOP",
         "dataset":{
             "id":SCITSR_REPO,"revision":SCITSR_REVISION,"license":"CC0-1.0",
             "source_files":SCITSR_FILES,"split_seed":42,
@@ -1719,8 +1815,10 @@ def stage_exports(args):
             "tapas":{"id":TAPAS_MANIFEST["modelId"],"revision":TAPAS_MANIFEST["revision"]},
         },
         "thresholds":{
-            "detection":DETECTION_THRESHOLD,"structure":STRUCTURE_THRESHOLD,"grid_nms_iou":GRID_NMS_IOU
+            "detection":DETECTION_THRESHOLD,"structure":STRUCTURE_THRESHOLD,"grid_nms_iou":GRID_NMS_IOU,
+            "crop_padding":CROP_PADDING,
         },
+        "text_visibility":TEXT_VISIBILITY,
         "runtime":RUNTIME,
     }
     (out_dir/"provenance.json").write_text(json.dumps(provenance,indent=2),encoding="utf-8")
@@ -1819,7 +1917,7 @@ def stage_byod(args):
                      if w["box"][0]<-1 or w["box"][1]<-1 or w["box"][2]>image.width+1 or w["box"][3]>image.height+1]
             if outside:
                 problems.append(
-                    f"ocr.csv lines {outside[:5]}: boxes for {image_path.stem} extend beyond its {image.width}x{image.height} image. "
+                    f"ocr.csv lines {outside}: boxes for {image_path.stem} extend beyond its {image.width}x{image.height} image. "
                     "Boxes must be page-image pixels with a top-left origin; convert PDF points or a bottom-left origin first"
                 )
                 continue
@@ -1944,8 +2042,8 @@ def stage_summary(args):
         print(f"  mean IoU over the {det_metrics['detected_pages']} detected pages: {det_metrics['mean_best_iou_detected']:.3f}")
     print()
     print("Stage 2 — Structure")
-    print(f"  gold-crop exact grids: {waterfall['structure_gold_crop']['grid_exact']} / {len(canonical_tables)}")
-    print(f"  detected-crop exact grids (a detection miss is not exact): {waterfall['structure_detected_crop']['grid_exact']} / {len(canonical_tables)}")
+    print(f"  gold-crop exact grid shapes: {waterfall['structure_gold_crop']['grid_exact']} / {len(canonical_tables)}")
+    print(f"  detected-crop exact grid shapes (a detection miss is not exact): {waterfall['structure_detected_crop']['grid_exact']} / {len(canonical_tables)}")
     print()
     print("Stage 3 — Reconstruction")
     print(f"  valid gold-crop tables: {waterfall['reconstruction']['valid_gold_crop']} / {len(canonical_tables)}")
@@ -1959,9 +2057,11 @@ def stage_summary(args):
           f"structure-only {waterfall['qa']['structure_only_correct']}, end-to-end {waterfall['qa']['end_to_end_correct']}")
     attribution=waterfall.get("loss_attribution")
     if attribution:
-        print(f"  wrong on the gold table (TAPAS's own error, on every path): {attribution['wrong_on_gold_table']}")
-        print(f"  lost against the gold table: structure-only {attribution['lost_vs_gold_table']['structure_only']}, "
-              f"end-to-end {attribution['lost_vs_gold_table']['end_to_end']} (loss_attribution in waterfall.json)")
+        print(f"  wrong on the gold table (the reference path): {attribution['wrong_on_gold_table']}")
+        for key,label in (("gold_table_to_structure_only","gold -> structure-only"),
+                          ("structure_only_to_end_to_end","structure-only -> end-to-end")):
+            c=attribution[key]
+            print(f"  {label}: lost {c['lost']}, gained {c['gained']}, net {c['net_correct_change']:+d} (loss_attribution in waterfall.json)")
     if globals().get("byod_result") is not None:
         print()
         print(f"BYOD: {byod_result['pages']} page(s) processed, {len(byod_result['skipped'])} skipped; see {out_dir}/byod/")

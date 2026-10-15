@@ -39,41 +39,96 @@ def _qa(correct, status=None, path="gold_table"):
              "aggregation_correct": True, "pipeline_status": s} for i, (c, s) in enumerate(zip(correct, status, strict=True))]
 
 
-def _recorded_run_state(ns):
-    """The 2026-10-03 counts: gold 40, structure-only 40, end-to-end 30; tables t8 (miss) and t9 (extra column) fail."""
-    gold = [i % 5 != 0 or i >= 40 for i in range(50)]  # 8 wrong on t0..t7 ... plus 2 more below
-    gold[1] = gold[6] = False  # 10 wrong on the gold table, all on t0..t7
-    e2e_status = ["ok"] * 40 + ["detection_miss"] * 5 + ["header_or_limit_invalid"] * 5
-    e2e = [c and s == "ok" for c, s in zip(gold, e2e_status, strict=True)]
+def _synthetic_state(ns, gold, structure, e2e, e2e_status):
+    """SYNTHETIC state for the waterfall stage: the correctness of each question on each path is made up by the test.
+    It is not the recorded run's question-level data (that run saved no per-question records)."""
     tables = [{"source_id": f"t{i}", "gold_recon": {"valid": True}, "det_recon": {"valid": i < 8}} for i in range(10)]
     ns.update(
         canonical_tables=tables, qa_records=[{}] * 50,
-        gold_qa=_qa(gold), structure_qa=_qa(gold, path="structure_only"),
+        gold_qa=_qa(gold), structure_qa=_qa(structure, path="structure_only"),
         end_to_end_qa=_qa(e2e, e2e_status, path="end_to_end"),
         det_rows=[{"hit50": i != 8, "hit75": i != 8} for i in range(10)],
         structure_rows=[{"path": p, "grid_shape_exact": not (p == "detected_crop" and i >= 8)}
                         for p in ("gold_crop", "detected_crop") for i in range(10)],
     )
-    return sum(gold), sum(e2e)
 
 
-def test_waterfall_attributes_each_lost_question_to_a_stage(tmp_path, capsys):
+def test_waterfall_attribution_on_a_synthetic_state_with_the_recorded_counts(tmp_path, capsys):
+    # Synthetic: 40 / 40 / 30 correct, with the ten gold errors placed on t0..t7 and t8 (miss) / t9 (unusable) failing.
+    gold = [i % 5 != 0 or i >= 40 for i in range(50)]
+    gold[1] = gold[6] = False
+    e2e_status = ["ok"] * 40 + ["detection_miss"] * 5 + ["header_or_limit_invalid"] * 5
+    e2e = [c and s == "ok" for c, s in zip(gold, e2e_status, strict=True)]
     ns = load_stages(tmp_path)
-    gold_correct, e2e_correct = _recorded_run_state(ns)
-    assert (gold_correct, e2e_correct) == (40, 30)
+    _synthetic_state(ns, gold, gold, e2e, e2e_status)
     ns["stage_waterfall"](None)
     attribution = ns["waterfall"]["loss_attribution"]
     assert attribution["wrong_on_gold_table"] == 10
-    assert attribution["gold_table_to_structure_only"] == {"lost": 0, "gained": 0, "lost_by_status": {}}
+    assert attribution["gold_table_to_structure_only"] == {"lost": 0, "gained": 0, "net_correct_change": 0, "lost_by_status": {}}
     assert attribution["structure_only_to_end_to_end"] == {
-        "lost": 10, "gained": 0, "lost_by_status": {"detection_miss": 5, "header_or_limit_invalid": 5}}
-    assert attribution["lost_vs_gold_table"] == {"structure_only": 0, "end_to_end": 10}
-    # The counts that existed before are unchanged.
-    assert ns["waterfall"]["qa"]["gold_table_correct"] == 40 and ns["waterfall"]["qa"]["end_to_end_correct"] == 30
+        "lost": 10, "gained": 0, "net_correct_change": -10,
+        "lost_by_status": {"detection_miss": 5, "header_or_limit_invalid": 5}}
+    assert attribution["net_correct_change_vs_gold"] == {"structure_only": 0, "end_to_end": -10}
+    assert "lost_vs_gold_table" not in attribution
     out = capsys.readouterr().out
     assert "Per-question trace: 20 of 50 questions" in out
-    assert out.count("TAPAS on the gold table") == 10
-    assert out.count("detection miss") == 5 and out.count("detected crop (header_or_limit_invalid)") == 5
+    assert out.count("wrong on the gold table") == 10
+    assert out.count("(detection miss)") == 5 and out.count("(header_or_limit_invalid on the detected crop)") == 5
+
+
+def test_waterfall_reports_recoveries_and_cancelling_losses_and_gains(tmp_path, capsys):
+    # Synthetic: equal accuracies on gold and structure-only that hide one loss and one gain (q00 lost, q01 recovered),
+    # and an end-to-end path that recovers q02, which was wrong on both earlier paths.
+    gold = [True] * 50
+    gold[1] = gold[2] = False
+    structure = list(gold)
+    structure[0], structure[1] = False, True
+    e2e = list(structure)
+    e2e[2] = True
+    ns = load_stages(tmp_path)
+    _synthetic_state(ns, gold, structure, e2e, ["ok"] * 50)
+    ns["stage_waterfall"](None)
+    attribution = ns["waterfall"]["loss_attribution"]
+    assert attribution["gold_table_to_structure_only"]["lost"] == 1
+    assert attribution["gold_table_to_structure_only"]["gained"] == 1
+    assert attribution["gold_table_to_structure_only"]["net_correct_change"] == 0
+    assert attribution["net_correct_change_vs_gold"]["structure_only"] == 0
+    assert attribution["structure_only_to_end_to_end"]["gained"] == 1
+    assert attribution["net_correct_change_vs_gold"]["end_to_end"] == 1
+    out = capsys.readouterr().out
+    assert "lost gold -> structure-only (answered differently)" in out
+    assert "recovered on structure-only" in out and "recovered end to end" in out
+
+
+def test_final_denotation_uses_the_predicted_operator(tmp_path):
+    ns = load_stages(tmp_path)
+    lookup = {"gold_denotation": ["12"], "gold_coordinates": [[0, 1]]}
+    right_cell_with_count = {"cells": ["12"], "aggregation": "COUNT", "numeric_answer": 1.0, "coordinates": [[0, 1]]}
+    assert not ns["denotation_correct"](right_cell_with_count, lookup)  # final answer is 1, not 12
+    assert ns["selected_cells_match"](right_cell_with_count, lookup) is True  # diagnostic: the cell was right
+    assert ns["coordinates_exact"](right_cell_with_count, lookup) is True
+    right_cell_with_sum = {"cells": ["12"], "aggregation": "SUM", "numeric_answer": 12.0, "coordinates": [[0, 1]]}
+    assert ns["denotation_correct"](right_cell_with_sum, lookup)  # the final number equals the gold value
+    plain = {"cells": ["12"], "aggregation": "NONE", "numeric_answer": None, "coordinates": [[0, 1]]}
+    assert ns["denotation_correct"](plain, lookup) and ns["final_denotation"](plain) == ["12"]
+    total = {"gold_denotation": 30.0, "gold_coordinates": [[0, 1], [1, 1]]}
+    assert ns["denotation_correct"]({"cells": ["10", "20"], "aggregation": "SUM", "numeric_answer": 30.0,
+                                     "coordinates": [[0, 1], [1, 1]]}, total)
+    assert not ns["denotation_correct"]({"cells": ["30"], "aggregation": "NONE", "numeric_answer": None,
+                                         "coordinates": [[0, 1]]}, total)
+    assert ns["selected_cells_match"](plain, total) is None
+
+
+def test_reconstruction_fidelity_and_text_visibility(tmp_path):
+    ns = load_stages(tmp_path)
+    item = {"grid": [["A", "B"], ["x", "1"]]}
+    assert ns["table_equals_gold"]([["a", "b"], ["x", "1"]], item) and ns["headers_equal_gold"]([["A", "B"]], item)
+    assert not ns["table_equals_gold"]([["A", "B"], ["x", "2"]], item)
+    assert not ns["table_equals_gold"](None, item) and not ns["headers_equal_gold"](None, item)
+    inside = {"crop_box": [10, 10, 20, 20]}
+    outside = {"crop_box": [110, 10, 130, 20]}
+    assert ns["center_in_crop"](inside, [0, 0, 100, 50]) and not ns["center_in_crop"](outside, [0, 0, 100, 50])
+    assert ns["TEXT_VISIBILITY"] in ("center-in-crop", "all")
 
 
 def test_waterfall_reading_rule_is_anchored_to_the_gold_table_path():
@@ -81,7 +136,9 @@ def test_waterfall_reading_rule_is_anchored_to_the_gold_table_path():
     assert "largest drop" not in text
     assert "gold-table path" in text and "loss_attribution" in text
     sample = markdown("## 24. Checkpoint — trace the losses")
-    assert "40 of 50" in sample and "TAPAS's own errors" in sample and "revision 0.3.0-candidate" in sample
+    assert "40 / 40 / 30" in sample and "revision 0.3.0-candidate" in sample and "not hosted evidence" in sample
+    assert "on every path" not in sample and "ceiling" not in markdown("### What to notice — QA")
+    assert "TEXT_VISIBILITY" in markdown("## 17. Assign SciTSR source cell text")
     conclusion = markdown("## Your conclusion")
     assert "largest drop" not in conclusion and "loss_attribution" in conclusion
 
@@ -198,7 +255,7 @@ def test_crop_trace_prints_the_clipped_box(tmp_path):
 
 def test_disclosures_lineage_references_and_notice():
     six = markdown("## 6. SciTSR-PD provenance")
-    for term in ("PubTables-1M", "FinTabNet.c", "WikiTableQuestions", "no check for overlap"):
+    for term in ("PubTables-1M", "FinTabNet.c", "WikiTableQuestions", "unknown, because it was not checked"):
         assert term in six
     seven = markdown("## 7. Build the table-geometry")
     assert "mid-gaps" in seven and "14 of the 108" in seven and "The builder is not published" in seven
