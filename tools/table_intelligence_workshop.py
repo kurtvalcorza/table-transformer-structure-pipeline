@@ -41,6 +41,11 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+import warnings
+
+# TBL2-m2: transformers' TAPAS tokenizer indexes pandas Series by position, which pandas 2.2 reports as a
+# FutureWarning for every table cell (about 280 warning blocks per QA run). The pinned versions behave correctly.
+warnings.filterwarnings("ignore",message=r"Series\.__getitem__ treating keys as positions is deprecated",category=FutureWarning)
 
 STAGE_FORMAT = "dimer.table-intelligence-workshop.stages.v1"
 
@@ -586,6 +591,11 @@ def to_crop_frame(box,crop_box):
     return [box[0]-crop_box[0],box[1]-crop_box[1],box[2]-crop_box[0],box[3]-crop_box[1]]
 
 
+def clip_to_crop(box,crop_box):
+    """Clip a crop-frame box to the crop, as translate_gold_objects does before scoring (TBL2-m7)."""
+    return [max(0,box[0]),max(0,box[1]),min(crop_box[2]-crop_box[0],box[2]),min(crop_box[3]-crop_box[1],box[3])]
+
+
 # ---- former cell 30
 def load_structure_model():
     """Load the verified structure snapshot; §15, the activity after §18 and BYOD (§28) all use this loader."""
@@ -677,12 +687,38 @@ def contains(box,x,y):
     return box[0]<=x<=box[2] and box[1]<=y<=box[3]
 
 
+# Codex #5: the canonical path's text is an oracle twice over: a perfect transcription, already grouped into logical
+# cells. TEXT_VISIBILITY decides which of those cells a crop may use: "center-in-crop" keeps a cell only when its
+# centre lies inside the crop image the structure model saw; "all" keeps every cell of the table.
+TEXT_VISIBILITY = "center-in-crop"
+
+
+def center_in_crop(c,crop_box):
+    b=c["crop_box"]; x=(b[0]+b[2])/2; y=(b[1]+b[3])/2
+    return 0<=x<=crop_box[2]-crop_box[0] and 0<=y<=crop_box[3]-crop_box[1]
+
+
+def headers_equal_gold(table,item):
+    """Reconstruction fidelity (codex #6): the reconstructed header row equals the gold header row."""
+    return bool(table) and [norm_text(x) for x in table[0]]==[norm_text(x) for x in item["grid"][0]]
+
+
+def table_equals_gold(table,item):
+    """Reconstruction fidelity (codex #6): same shape and every normalized cell equal to the gold table."""
+    gold=item["grid"]
+    return bool(table) and len(table)==len(gold) and all(
+        len(a)==len(b) and all(norm_text(x)==norm_text(y) for x,y in zip(a,b)) for a,b in zip(table,gold))
+
+
 def reconstruct_table(item,grid,crop_box):
     if not grid["valid_geometry"] or not grid["rows"] or not grid["columns"]:
         return {"valid":False,"reason":"grid_invalid","table":None,"mapped":0,"unmapped":len(item["cells"]),"ambiguous":0}
     strings=[[[] for _ in grid["columns"]] for __ in grid["rows"]]
     mapped=unmapped=ambiguous=correct=0
     simple=[c for c in source_cells_in_crop(item,crop_box) if c["row_start"]==c["row_end"] and c["col_start"]==c["col_end"]]
+    outside=sum(1 for c in simple if not center_in_crop(c,crop_box))
+    if TEXT_VISIBILITY=="center-in-crop":
+        simple=[c for c in simple if center_in_crop(c,crop_box)]
     for c in simple:
         b=c["crop_box"]; x=(b[0]+b[2])/2; y=(b[1]+b[3])/2
         ris=[i for i,r in enumerate(grid["rows"]) if contains(r["box"],x,y)]
@@ -708,6 +744,7 @@ def reconstruct_table(item,grid,crop_box):
         "mapped":mapped,"unmapped":unmapped,"ambiguous":ambiguous,
         "assignment_accuracy":correct/max(1,len(simple)),
         "headers_valid":valid_headers,
+        "text_cells_outside_crop":outside,
     }
 
 
@@ -808,12 +845,51 @@ def norm_cell(s):
     return " ".join(str(s).lower().split())
 
 
-def denotation_correct(result,record):
+def final_denotation(result):
+    """The pipeline's one final answer: the selected cell strings when TAPAS predicts NONE, otherwise the number its
+    predicted operator computes from them (None when they do not parse)."""
+    return result["cells"] if result["aggregation"]=="NONE" else result["numeric_answer"]
+
+
+def value_correct(result,record):
+    """Value-equality rule, one of two co-primary rules: score the final denotation built from the predicted cells and
+    the predicted operator. A lookup answered with SUM/AVERAGE/COUNT counts when that number equals the gold cell's value."""
+    gold=record["gold_denotation"]
+    predicted=final_denotation(result)
+    if predicted is None:
+        return False
+    if isinstance(gold,list):
+        if isinstance(predicted,list):
+            return sorted(norm_cell(x) for x in predicted)==sorted(norm_cell(x) for x in gold)
+        value=parse_number(gold[0]) if len(gold)==1 else None
+        return value is not None and abs(float(predicted)-value)<=1e-6
+    if isinstance(predicted,list):
+        return False
+    return abs(float(predicted)-float(gold))<=1e-6
+
+
+def strict_correct(result,record):
+    """Strict-operator rule, the other co-primary rule: a lookup counts only when TAPAS predicted NONE and selected the
+    gold cell; an aggregation question needs the predicted operator to equal the gold one and the value to match."""
     gold=record["gold_denotation"]
     if isinstance(gold,list):
-        return sorted(norm_cell(x) for x in result["cells"])==sorted(norm_cell(x) for x in gold)
+        return result["aggregation"]=="NONE" and sorted(norm_cell(x) for x in result["cells"])==sorted(norm_cell(x) for x in gold)
     value=result["numeric_answer"]
-    return value is not None and abs(float(value)-float(gold))<=1e-6
+    return result["aggregation"]==record["gold_aggregation"] and value is not None and abs(float(value)-float(gold))<=1e-6
+
+
+def selected_cells_match(result,record):
+    """Diagnostic only: for a lookup, do the selected cell strings equal the gold cell, whatever the operator?"""
+    gold=record["gold_denotation"]
+    if not isinstance(gold,list):
+        return None
+    return sorted(norm_cell(x) for x in result["cells"])==sorted(norm_cell(x) for x in gold)
+
+
+def coordinates_exact(result,record):
+    """Diagnostic: the selected (row, column) set equals the gold coordinates. Meaningful on the gold table; a
+    reconstructed table can index its cells differently."""
+    return {tuple(x) for x in result["coordinates"]}=={tuple(x) for x in record["gold_coordinates"]}
 
 
 def score_path(path_name,table_provider):
@@ -827,8 +903,9 @@ def score_path(path_name,table_provider):
                 "question_id":record["id"],"table_id":record["table_id"],"path":path_name,
                 "question":record["question"],"gold_aggregation":record["gold_aggregation"],
                 "predicted_aggregation":None,"gold_denotation":record["gold_denotation"],
-                "predicted_denotation":None,"denotation_correct":False,
-                "aggregation_correct":False,"selected_cells":[],"coordinates":[],
+                "predicted_denotation":None,"value_correct":False,"strict_correct":False,
+                "aggregation_correct":False,"selected_cells_match":None,"coordinates_exact":False,
+                "selected_cells":[],"coordinates":[],
                 "pipeline_status":status,"latency_seconds":None,
             })
             continue
@@ -839,8 +916,10 @@ def score_path(path_name,table_provider):
             "question_id":record["id"],"table_id":record["table_id"],"path":path_name,
             "question":record["question"],"gold_aggregation":record["gold_aggregation"],
             "predicted_aggregation":result["aggregation"],"gold_denotation":record["gold_denotation"],
-            "predicted_denotation":result["numeric_answer"] if record["gold_aggregation"]!="NONE" else result["cells"],
-            "denotation_correct":denotation_correct(result,record),
+            "predicted_denotation":final_denotation(result),
+            "value_correct":value_correct(result,record),"strict_correct":strict_correct(result,record),
+            "selected_cells_match":selected_cells_match(result,record),
+            "coordinates_exact":coordinates_exact(result,record),
             "aggregation_correct":result["aggregation"]==record["gold_aggregation"],
             "selected_cells":result["cells"],"coordinates":result["coordinates"],
             "pipeline_status":"ok","latency_seconds":times[-1],
@@ -866,10 +945,14 @@ def full_provider(item):
 def qa_summary(rows):
     return {
         "n":len(rows),
-        "correct":int(sum(r["denotation_correct"] for r in rows)),
-        "denotation_accuracy":float(np.mean([r["denotation_correct"] for r in rows])),
+        "value_correct":int(sum(r["value_correct"] for r in rows)),
+        "value_accuracy":float(np.mean([r["value_correct"] for r in rows])),
+        "strict_correct":int(sum(r["strict_correct"] for r in rows)),
+        "strict_accuracy":float(np.mean([r["strict_correct"] for r in rows])),
         "aggregation_accuracy":float(np.mean([r["aggregation_correct"] for r in rows])),
         "valid_questions":sum(r["pipeline_status"]=="ok" for r in rows),
+        "lookups_with_matching_cells":sum(1 for r in rows if r.get("selected_cells_match")),
+        "coordinate_accuracy":float(np.mean([bool(r.get("coordinates_exact")) for r in rows])),
     }
 
 
@@ -922,13 +1005,29 @@ def accepted_answer_matches(result,accepted):
     return norm_cell(predicted)==norm_cell(accepted)
 
 
+REFUSED_EXIT = 3  # exit code of a refused BYOD input; the notebook's run_stage shows it without a traceback (DAT20)
+
+
+class ByodRefusal(ValueError):
+    """A BYOD input that breaks the documented contract: shown as one message, never as a crash (TBL2-m1)."""
+
+
+class ByodLayoutRefusal(ByodRefusal, FileNotFoundError):
+    """BYOD_PATH lacks pages/ or ocr.csv."""
+
+
+def byod_refuse(problems):
+    """Refuse once, naming every problem found (DAT19/DAT20)."""
+    raise ByodRefusal("\n".join(f"- {p}" for p in problems))
+
+
 def read_byod_csv(path,required):
     """Rows with their file line numbers (line 1 is the header); names any missing column."""
     with open(path,encoding="utf-8-sig",newline="") as f:
         reader=csv.DictReader(f)
         lacking=sorted(required-set(reader.fieldnames or []))
         if lacking:
-            raise ValueError(f"{path.name}: missing column(s) {lacking}; required columns are {sorted(required)}")
+            raise ByodRefusal(f"{path.name}: missing column(s) {lacking}; required columns are {sorted(required)}")
         return list(enumerate(reader,start=2))
 
 
@@ -1142,6 +1241,17 @@ def stage_detection(args):
     det_peak=torch.cuda.max_memory_allocated() if torch.cuda.is_available() else None
 
     print({"mean_latency":float(np.mean(det_times)),"detections":[len(x["detections"]) for x in canonical_tables]})
+    # TBL2-S2 (display only; timings and peak memory are already recorded): for a page without a detection
+    # above the threshold, the best table score the detector gave it below the threshold.
+    below={}
+    for item in canonical_tables:
+        if item["selected_detection"] is None:
+            rejected=detect_table(item["page"],threshold=0.0)  # sorted by score, highest first
+            below[item["source_id"]]=({"score":round(rejected[0]["score"],4),
+                                       "iou_with_reference":round(box_iou(rejected[0]["box"],item["page_gt_box"]),4)}
+                                      if rejected else "none")
+    if below:
+        print({"detection_threshold":DETECTION_THRESHOLD,"best_table_score_below_threshold":below})
 
     # The detector is no longer needed: unload it before the structure model (sequential loading, spec §67).
     del det_model,det_processor
@@ -1160,9 +1270,13 @@ def stage_detection_metrics(args):
         det_pred_lists.append(preds)
         det_refs.append([{"label":"table","box":item["page_gt_box"]}])
         best=max([box_iou(x["box"],item["page_gt_box"]) for x in item["detections"]],default=0.0)
+        # Codex #7: the pipeline crops the highest-scoring detection, which need not be the best-overlapping one.
+        chosen=item.get("selected_detection")
+        selected=box_iou(chosen["box"],item["page_gt_box"]) if chosen else 0.0
         det_rows.append({
             "table_id":item["source_id"],"predicted":bool(item["detections"]),
             "best_iou":best,"hit50":best>=0.5,"hit75":best>=0.75,
+            "selected_iou":selected,"selected_hit50":selected>=0.5,
         })
 
     det_metrics={
@@ -1173,6 +1287,13 @@ def stage_detection_metrics(args):
         "mean_best_iou":float(np.mean([r["best_iou"] for r in det_rows])),
         "median_best_iou":float(np.median([r["best_iou"] for r in det_rows])),
     }
+    # TBL2-m3: mean_best_iou scores a page with no detection as IoU 0; this mean covers the detected pages only.
+    detected_ious=[r["best_iou"] for r in det_rows if r["predicted"]]
+    det_metrics["detected_pages"]=len(detected_ious)
+    det_metrics["mean_best_iou_detected"]=float(np.mean(detected_ious)) if detected_ious else None
+    det_metrics["selected_hit50"]=float(np.mean([r["selected_hit50"] for r in det_rows]))
+    det_metrics["mean_selected_iou"]=float(np.mean([r["selected_iou"] for r in det_rows]))
+    det_metrics["ap_scope"]="threshold-filtered: only detections above the detection threshold are ranked"
     print(det_metrics)
 
 
@@ -1202,6 +1323,8 @@ def stage_crops(args):
         "gold_crop_frame":[round(v,1) for v in to_crop_frame(trace_page,trace_item["gold_crop_box"])],
         "detected_crop_origin":trace_item["det_crop_box"][:2] if trace_item["det_crop_box"] else None,
         "detected_crop_frame":[round(v,1) for v in to_crop_frame(trace_page,trace_item["det_crop_box"])] if trace_item["det_crop_box"] else None,
+        # TBL2-m7: the same box clipped to the crop, which is what scoring uses.
+        "detected_crop_frame_clipped":[round(v,1) for v in clip_to_crop(to_crop_frame(trace_page,trace_item["det_crop_box"]),trace_item["det_crop_box"])] if trace_item["det_crop_box"] else None,
     })
 
 
@@ -1277,6 +1400,8 @@ def stage_structure_metrics(args):
                 "grid_shape_exact":rows_exact and cols_exact,
                 "mean_row_iou":float(np.mean(best_r)) if best_r else 0.0,
                 "mean_column_iou":float(np.mean(best_c)) if best_c else 0.0,
+                # Codex #8: the IoUs above cover only the reference boxes that survive clipping to this crop.
+                "reference_rows_retained":len(gold_rows),"reference_columns_retained":len(gold_cols),
             })
 
     for path_name in ("gold_crop","detected_crop"):
@@ -1439,6 +1564,17 @@ def stage_qa(args):
     print("Gold:",qa_summary(gold_qa))
     print("Structure-only:",qa_summary(structure_qa))
     print("End-to-end:",qa_summary(end_to_end_qa))
+    # Codex #10 (display only): accuracy by operator and per table; the 50 questions share tables and papers.
+    for name,rows in (("gold_table",gold_qa),("structure_only",structure_qa),("end_to_end",end_to_end_qa)):
+        by_op=defaultdict(list); by_table=defaultdict(list)
+        for r in rows:
+            pair=(r["value_correct"],r["strict_correct"])
+            by_op[r["gold_aggregation"]].append(pair); by_table[r["table_id"]].append(pair)
+        fmt=lambda v:f"value {sum(a for a,_ in v)}/{len(v)}, strict {sum(b for _,b in v)}/{len(v)}"
+        print(name,"by operator:",{k:fmt(v) for k,v in by_op.items()})
+        print(name,"per table:",{k:fmt(v) for k,v in by_table.items()})
+    print({"tables":len(canonical_tables),"papers":len({x.get("paper_id") for x in canonical_tables}),
+           "questions":len(qa_records),"note":"questions share tables and papers; they are not independent examples"})
 
 
 @stage("waterfall")
@@ -1463,15 +1599,69 @@ def stage_waterfall(args):
         },
         "qa":{
             "questions":len(qa_records),
-            "gold_table_correct":qa_summary(gold_qa)["correct"],
-            "structure_only_correct":qa_summary(structure_qa)["correct"],
-            "end_to_end_correct":qa_summary(end_to_end_qa)["correct"],
-            "gold_table_denotation_accuracy":qa_summary(gold_qa)["denotation_accuracy"],
-            "structure_only_denotation_accuracy":qa_summary(structure_qa)["denotation_accuracy"],
-            "end_to_end_denotation_accuracy":qa_summary(end_to_end_qa)["denotation_accuracy"],
+            # Two co-primary scoring rules, neither a headline: value-equality and strict-operator (§22).
+            **{f"{name}_{rule}_{kind}":qa_summary(rows)[f"{rule}_{kind}"]
+               for name,rows in (("gold_table",gold_qa),("structure_only",structure_qa),("end_to_end",end_to_end_qa))
+               for rule in ("value","strict") for kind in ("correct","accuracy")},
         },
     }
+    # TBL2-M1 / codex #1-#2: compare paths question by question. The gold-table path is a reference diagnostic, not a
+    # ceiling: a changed table can turn a wrong gold answer right as well as a right one wrong, and losses and gains
+    # can cancel. score_path walks qa_records in order for every path, so position i is the same question on all three.
+    paths=list(zip(gold_qa,structure_qa,end_to_end_qa))
+
+    def compare(pairs,key):
+        lost=[b for a,b in pairs if a[key] and not b[key]]
+        gained=[b for a,b in pairs if b[key] and not a[key]]
+        return {
+            "lost":len(lost),"gained":len(gained),"net_correct_change":len(gained)-len(lost),
+            "lost_by_status":dict(Counter("answered_differently" if b["pipeline_status"]=="ok" else b["pipeline_status"] for b in lost)),
+        }
+
+    def attribution(rule):
+        key=rule+"_correct"
+        return {
+            "wrong_on_gold_table":sum(1 for g,_s,_e in paths if not g[key]),
+            "gold_table_to_structure_only":compare([(g,s) for g,s,_e in paths],key),
+            "structure_only_to_end_to_end":compare([(s,e) for _g,s,e in paths],key),
+            "gold_table_to_end_to_end":compare([(g,e) for g,_s,e in paths],key),
+            "net_correct_change_vs_gold":{
+                "structure_only":waterfall["qa"][f"structure_only_{key}"]-waterfall["qa"][f"gold_table_{key}"],
+                "end_to_end":waterfall["qa"][f"end_to_end_{key}"]-waterfall["qa"][f"gold_table_{key}"],
+            },
+        }
+
+    waterfall["loss_attribution"]={
+        "unit":"questions out of qa.questions, compared question by question under each co-primary rule; lost and gained are gross counts and net_correct_change = gained - lost",
+        "value":attribution("value"),
+        "strict":attribution("strict"),
+    }
     print(json.dumps(waterfall,indent=2))
+
+    # Display only: each question not right on all three paths under either rule, with both rules' transitions.
+    def transitions(g,s,e,key):
+        out=[]
+        if not g[key]:out.append("wrong on the gold table")
+        if g[key] and not s[key]:
+            out.append("lost gold -> structure-only ("+("answered differently" if s["pipeline_status"]=="ok" else s["pipeline_status"])+")")
+        if s[key] and not g[key]:out.append("recovered on structure-only")
+        if s[key] and not e[key]:
+            if e["pipeline_status"]=="detection_miss":out.append("lost structure-only -> end-to-end (detection miss)")
+            elif e["pipeline_status"]!="ok":out.append("lost structure-only -> end-to-end ("+e["pipeline_status"]+" on the detected crop)")
+            else:out.append("lost structure-only -> end-to-end (answered differently; associated with the crop-path change)")
+        if e[key] and not s[key]:out.append("recovered end to end")
+        return "; ".join(out) or "right on every path"
+
+    rules=("value_correct","strict_correct")
+    trace=[(i,g,s,e) for i,(g,s,e) in enumerate(paths) if not all(r[k] for r in (g,s,e) for k in rules)]
+    mark=lambda r:("V" if r["value_correct"] else "-")+("S" if r["strict_correct"] else "-")
+    print(f"\nPer-question trace: {len(trace)} of {len(paths)} questions were not right on all three paths under both rules")
+    print("V = right under the value-equality rule, S = right under the strict-operator rule, - = wrong")
+    print(f"{'question':<24} {'operator gold/pred':<20} {'gold':<5} {'struct':<7} {'e2e':<4} transitions")
+    for i,g,s,e in trace:
+        ops=f"{g.get('gold_aggregation','')}/{g.get('predicted_aggregation','')}"
+        print(f"{str(g.get('question_id',i)):<24} {ops:<20} {mark(g):<5} {mark(s):<7} {mark(e):<4} "
+              f"value: {transitions(g,s,e,'value_correct')} | strict: {transitions(g,s,e,'strict_correct')}")
 
 
 @stage("checkpoint")
@@ -1487,6 +1677,8 @@ def stage_checkpoint(args):
             "det_crop_pred_shape":[len(item["det_grid_pred"]["rows"]),len(item["det_grid_pred"]["columns"])],
             "cell_accuracy_gold_crop":item["gold_recon"].get("assignment_accuracy"),
             "cell_accuracy_detected_crop":item["det_recon"].get("assignment_accuracy"),
+            "table_equals_gold_gold_crop":table_equals_gold(item["gold_recon"].get("table"),item),
+            "table_equals_gold_detected_crop":table_equals_gold(item["det_recon"].get("table"),item),
         })
 
 
@@ -1559,11 +1751,12 @@ def stage_exports(args):
     tables_dir=out_dir/"tables"
     tables_dir.mkdir(exist_ok=True)
 
-    write_csv(out_dir/"table_detection.csv",det_rows,["table_id","predicted","best_iou","hit50","hit75"])
+    write_csv(out_dir/"table_detection.csv",det_rows,["table_id","predicted","best_iou","hit50","hit75","selected_iou","selected_hit50"])
     write_csv(
         out_dir/"structure_metrics.csv",structure_rows,
         ["table_id","path","status","gold_rows","predicted_rows","gold_columns","predicted_columns",
-         "row_count_exact","column_count_exact","grid_shape_exact","mean_row_iou","mean_column_iou"]
+         "row_count_exact","column_count_exact","grid_shape_exact","mean_row_iou","mean_column_iou",
+         "reference_rows_retained","reference_columns_retained"]
     )
 
     recon_rows=[]
@@ -1577,7 +1770,11 @@ def stage_exports(args):
                 "predicted_columns":len(item["gold_grid_pred"]["columns"] if path_name=="gold_crop" else item["det_grid_pred"]["columns"]),
                 "mapped_cells":r.get("mapped",0),"unmapped_cells":r.get("unmapped",0),
                 "ambiguous_cells":r.get("ambiguous",0),"cell_assignment_accuracy":r.get("assignment_accuracy"),
-                "header_exact":r.get("headers_valid",False),"valid_for_tapas":r.get("valid",False),
+                "headers_valid":r.get("headers_valid",False),
+                "headers_equal_gold":headers_equal_gold(r.get("table"),item),
+                "table_equals_gold":table_equals_gold(r.get("table"),item),
+                "text_cells_outside_crop":r.get("text_cells_outside_crop",0),
+                "valid_for_tapas":r.get("valid",False),
             })
             if r.get("table") is not None:
                 (tables_dir/f"{item['source_id'].replace('/','_')}_{path_name}.json").write_text(
@@ -1589,7 +1786,8 @@ def stage_exports(args):
     write_csv(
         out_dir/"reconstruction_metrics.csv",recon_rows,
         ["table_id","path","gold_rows","gold_columns","predicted_rows","predicted_columns","mapped_cells",
-         "unmapped_cells","ambiguous_cells","cell_assignment_accuracy","header_exact","valid_for_tapas"]
+         "unmapped_cells","ambiguous_cells","cell_assignment_accuracy","headers_valid","headers_equal_gold",
+         "table_equals_gold","text_cells_outside_crop","valid_for_tapas"]
     )
 
     with open(out_dir/"qa_questions.jsonl","w",encoding="utf-8") as f:
@@ -1599,7 +1797,8 @@ def stage_exports(args):
     write_csv(
         out_dir/"qa_predictions.csv",qa_all,
         ["question_id","table_id","path","question","gold_aggregation","predicted_aggregation",
-         "gold_denotation","predicted_denotation","denotation_correct","aggregation_correct",
+         "gold_denotation","predicted_denotation","value_correct","strict_correct","aggregation_correct",
+         "selected_cells_match","coordinates_exact",
          "selected_cells","coordinates","pipeline_status","latency_seconds"]
     )
     write_csv(
@@ -1626,7 +1825,8 @@ def stage_exports(args):
 
     provenance={
         "created_utc":datetime.now(timezone.utc).isoformat(),
-        "notebook_spec":"2.1","profile":"TASK-INFERENCE","pedagogical_mode":"WORKSHOP",
+        "notebook_spec":"2.5","notebook_revision":"0.4.0-candidate","notebook_kind":"WORKSHOP",
+        "profile":"TASK-INFERENCE","pedagogical_mode":"WORKSHOP",
         "dataset":{
             "id":SCITSR_REPO,"revision":SCITSR_REVISION,"license":"CC0-1.0",
             "source_files":SCITSR_FILES,"split_seed":42,
@@ -1638,8 +1838,10 @@ def stage_exports(args):
             "tapas":{"id":TAPAS_MANIFEST["modelId"],"revision":TAPAS_MANIFEST["revision"]},
         },
         "thresholds":{
-            "detection":DETECTION_THRESHOLD,"structure":STRUCTURE_THRESHOLD,"grid_nms_iou":GRID_NMS_IOU
+            "detection":DETECTION_THRESHOLD,"structure":STRUCTURE_THRESHOLD,"grid_nms_iou":GRID_NMS_IOU,
+            "crop_padding":CROP_PADDING,
         },
+        "text_visibility":TEXT_VISIBILITY,
         "runtime":RUNTIME,
     }
     (out_dir/"provenance.json").write_text(json.dumps(provenance,indent=2),encoding="utf-8")
@@ -1655,38 +1857,48 @@ def stage_byod(args):
     load_pandas()
     byod_result=None
     if USE_BYOD:
+        # TBL2-m1 (DAT20): earlier BYOD outputs are removed before validation, so a refusal leaves none behind.
+        byod_dir=Path(OUTPUT_DIR)/"byod"
+        if byod_dir.exists():
+            shutil.rmtree(byod_dir)
         if not str(BYOD_PATH).strip():
-            raise ValueError("USE_BYOD is True but BYOD_PATH is empty: set BYOD_PATH in §3 to the folder that holds pages/ and ocr.csv")
+            raise ByodRefusal("USE_BYOD is True but BYOD_PATH is empty: set BYOD_PATH in §3 to the folder that holds pages/ and ocr.csv")
         root=Path(BYOD_PATH)
         pages_dir=root/"pages"
         ocr_path=root/"ocr.csv"
         questions_path=root/"questions.csv"
         absent=[name for name,ok in (("pages/",pages_dir.is_dir()),("ocr.csv",ocr_path.is_file())) if not ok]
         if absent:
-            raise FileNotFoundError(f"BYOD_PATH {str(root)!r} is missing {absent}; use the layout shown in §28")
+            raise ByodLayoutRefusal(f"BYOD_PATH {str(root)!r} is missing {absent}; use the layout shown in §28")
 
-        # Validate every row before any model runs.
+        # Validate every row before any model runs; every refused row is collected and reported once (TBL2-m1).
+        problems=[]
         ocr_by_page=defaultdict(list)
-        for line,row in read_byod_csv(ocr_path,{"page_id","text","x0","y0","x1","y1","order"}):
+        ocr_rows=read_byod_csv(ocr_path,{"page_id","text","x0","y0","x1","y1","order"})
+        for line,row in ocr_rows:
             page_id=str(row["page_id"] or "").strip()
             if not page_id:
-                raise ValueError(f"ocr.csv line {line}: page_id is empty")
+                problems.append(f"ocr.csv line {line}: page_id is empty")
+                continue
             try:
                 box=[float(row[k]) for k in ("x0","y0","x1","y1")]
             except (TypeError,ValueError):
-                raise ValueError(
+                problems.append(
                     f"ocr.csv line {line}: x0,y0,x1,y1 must be numbers in page-image pixels, got "
                     f"{[row[k] for k in ('x0','y0','x1','y1')]}"
-                ) from None
+                )
+                continue
             if not all(math.isfinite(v) for v in box) or box[0]>box[2] or box[1]>box[3]:
-                raise ValueError(f"ocr.csv line {line}: box {box} needs finite values with x0<=x1 and y0<=y1 (top-left origin)")
+                problems.append(f"ocr.csv line {line}: box {box} needs finite values with x0<=x1 and y0<=y1 (top-left origin)")
+                continue
             try:
                 order=int(str(row["order"]).strip())
             except ValueError:
-                raise ValueError(f"ocr.csv line {line}: order must be a whole number, got {row['order']!r}") from None
+                problems.append(f"ocr.csv line {line}: order must be a whole number, got {row['order']!r}")
+                continue
             ocr_by_page[page_id].append({"text":str(row["text"] or ""),"box":box,"order":order,"line":line})
-        if not ocr_by_page:
-            raise ValueError("ocr.csv has a header but no rows")
+        if not ocr_rows:
+            problems.append("ocr.csv has a header but no rows")
         for page_id in ocr_by_page:
             ocr_by_page[page_id].sort(key=lambda x:x["order"])
 
@@ -1694,8 +1906,11 @@ def stage_byod(args):
         if questions_path.is_file():
             for line,row in read_byod_csv(questions_path,{"id","page_id","question"}):
                 if not str(row["question"] or "").strip() or not str(row["page_id"] or "").strip():
-                    raise ValueError(f"questions.csv line {line}: page_id and question must be non-empty")
+                    problems.append(f"questions.csv line {line}: page_id and question must be non-empty")
+                    continue
                 q_by_page[str(row["page_id"]).strip()].append(row)
+        if problems:
+            byod_refuse(problems)
 
         byod_skipped=[]
         byod_inputs=[]
@@ -1710,7 +1925,7 @@ def stage_byod(args):
                 byod_inputs.append(image_path)
         ocr_without_image=sorted(set(ocr_by_page)-{p.stem for p in byod_inputs})
         if not byod_inputs:
-            raise ValueError(
+            raise ByodRefusal(
                 f"No page in {pages_dir} has OCR rows. Skipped: {byod_skipped}. "
                 f"ocr.csv page_ids: {sorted(ocr_by_page)[:10]}. A page_id must equal its image file name without the extension."
             )
@@ -1719,15 +1934,19 @@ def stage_byod(args):
         for image_path in byod_inputs:
             image=Image.open(image_path); image.load(); image=image.convert("RGB")
             if min(image.size)<16 or max(image.size)>4096:
-                raise ValueError(f"{image_path.name}: page is {image.width}x{image.height}; each side must be 16..4096 px")
+                problems.append(f"{image_path.name}: page is {image.width}x{image.height}; each side must be 16..4096 px")
+                continue
             outside=[w["line"] for w in ocr_by_page[image_path.stem]
                      if w["box"][0]<-1 or w["box"][1]<-1 or w["box"][2]>image.width+1 or w["box"][3]>image.height+1]
             if outside:
-                raise ValueError(
-                    f"ocr.csv lines {outside[:5]}: boxes for {image_path.stem} extend beyond its {image.width}x{image.height} image. "
+                problems.append(
+                    f"ocr.csv lines {outside}: boxes for {image_path.stem} extend beyond its {image.width}x{image.height} image. "
                     "Boxes must be page-image pixels with a top-left origin; convert PDF points or a bottom-left origin first"
                 )
+                continue
             byod_images[image_path.stem]=image
+        if problems:
+            byod_refuse(problems)
 
         # Detection, then structure: loaded one at a time with the same loaders as the sample path.
         det_processor,det_model=load_detection_model()
@@ -1833,7 +2052,7 @@ def stage_summary(args):
     missing=[str(p) for p in required if not p.is_file()]
     if missing:raise RuntimeError(f"Required outputs missing: {missing}")
 
-    print("DIMER Table Intelligence Workshop")
+    print("DIMER Notebook: Table Intelligence")
     print("-"*34)
     print(f"Canonical tables: {len(canonical_tables)}")
     print(f"Questions: {len(qa_records)}")
@@ -1841,22 +2060,33 @@ def stage_summary(args):
     print("Stage 1 — Detection")
     print(f"  AP50: {det_metrics['ap50']:.3f}")
     print(f"  hit@0.50: {det_metrics['hit50']:.3f}")
-    print(f"  mean IoU: {det_metrics['mean_best_iou']:.3f}")
+    print(f"  mean IoU (a page with no detection counts as 0): {det_metrics['mean_best_iou']:.3f}")
+    if det_metrics.get("mean_best_iou_detected") is not None:
+        print(f"  mean IoU over the {det_metrics['detected_pages']} detected pages: {det_metrics['mean_best_iou_detected']:.3f}")
     print()
     print("Stage 2 — Structure")
-    print(f"  gold-crop exact grids: {waterfall['structure_gold_crop']['grid_exact']} / {len(canonical_tables)}")
-    print(f"  detected-crop exact grids (a detection miss is not exact): {waterfall['structure_detected_crop']['grid_exact']} / {len(canonical_tables)}")
+    print(f"  gold-crop exact grid shapes: {waterfall['structure_gold_crop']['grid_exact']} / {len(canonical_tables)}")
+    print(f"  detected-crop exact grid shapes (a detection miss is not exact): {waterfall['structure_detected_crop']['grid_exact']} / {len(canonical_tables)}")
     print()
     print("Stage 3 — Reconstruction")
     print(f"  valid gold-crop tables: {waterfall['reconstruction']['valid_gold_crop']} / {len(canonical_tables)}")
     print(f"  valid detected tables: {waterfall['reconstruction']['valid_detected_crop']} / {len(canonical_tables)}")
     print()
-    print("Stage 4 — TAPAS")
-    print(f"  gold-table denotation: {waterfall['qa']['gold_table_denotation_accuracy']:.3f}")
-    print(f"  structure-only denotation: {waterfall['qa']['structure_only_denotation_accuracy']:.3f}")
-    print(f"  end-to-end denotation: {waterfall['qa']['end_to_end_denotation_accuracy']:.3f}")
-    print(f"  correct answers of {len(qa_records)}: gold {waterfall['qa']['gold_table_correct']}, "
-          f"structure-only {waterfall['qa']['structure_only_correct']}, end-to-end {waterfall['qa']['end_to_end_correct']}")
+    print("Stage 4 — TAPAS (two co-primary scoring rules, side by side)")
+    print(f"  {'path':<16} {'value-equality':>16} {'strict-operator':>16}")
+    for name,label in (("gold_table","gold table"),("structure_only","structure-only"),("end_to_end","end-to-end")):
+        q=waterfall["qa"]
+        print(f"  {label:<16} {q[name+'_value_correct']:>4}/{len(qa_records)} ({q[name+'_value_accuracy']:.3f}) "
+              f"{q[name+'_strict_correct']:>4}/{len(qa_records)} ({q[name+'_strict_accuracy']:.3f})")
+    attribution=waterfall.get("loss_attribution")
+    if attribution:
+        for rule in ("value","strict"):
+            a=attribution[rule]
+            print(f"  {rule} rule: wrong on the gold table (the reference path) {a['wrong_on_gold_table']}; "
+                  + "; ".join(f"{label} lost {a[key]['lost']}, gained {a[key]['gained']}, net {a[key]['net_correct_change']:+d}"
+                              for key,label in (("gold_table_to_structure_only","gold -> structure-only"),
+                                                ("structure_only_to_end_to_end","structure-only -> end-to-end"))))
+        print("  (loss_attribution in waterfall.json)")
     if globals().get("byod_result") is not None:
         print()
         print(f"BYOD: {byod_result['pages']} page(s) processed, {len(byod_result['skipped'])} skipped; see {out_dir}/byod/")
@@ -1871,7 +2101,15 @@ def main(argv=None):
     parser.add_argument("--threshold",default=None,type=float)
     args=parser.parse_args(argv)
     configure(json.loads(Path(args.config).read_text(encoding="utf-8")))
-    STAGES[args.stage](args)
+    try:
+        STAGES[args.stage](args)
+    except ByodRefusal as refusal:
+        # TBL2-m1 (DAT20): a refused BYOD input is one message with the way to recover, not a traceback.
+        # Genuine failures (integrity errors, crashes) are not ByodRefusal and still stop with a traceback.
+        print("BYOD input refused: nothing was processed, and no BYOD results are on disk.\n"
+              f"{refusal}\n"
+              "Fix every file and line named above, then run the BYOD cell (§28) again.", flush=True)
+        return REFUSED_EXIT
     return 0
 
 

@@ -1,5 +1,7 @@
 # ruff: noqa: E501,I001
-"""Generate the DIMER Table Intelligence workshop notebook.
+"""Generate the DIMER Table Intelligence notebook (tutorials/DIMER_Table_Intelligence_Workshop.ipynb).
+
+The file name keeps the WORKSHOP kind pattern (KND2); titles and prose call the artifact a notebook (GDL15).
 
 Besides the cells of ``table_intelligence_workshop_source.py`` the notebook carries two files byte-for-byte,
 in its carrier cell (id ``uvcarrier``), and verifies their SHA-256 before use:
@@ -27,10 +29,11 @@ CARRIED = {
 }
 PIECE_LIMIT = 1000
 DIMER_METADATA = {
-    "notebook_spec": "2.1",
+    "notebook_spec": "2.5",
     "notebook_profile": "TASK-INFERENCE",
     "profile": "TASK-INFERENCE",
     "notebook_mode": "WORKSHOP",
+    "notebook_kind": "WORKSHOP",
     "workflow_scope": "COMPOSED-PIPELINE",
     "standalone": True,
     "canonical_runtime": "NVIDIA Tesla T4",
@@ -73,6 +76,14 @@ DIMER_METADATA = {
             "base_commit": "a043211deeb9d62d5cc9864bc6ac37123fe1f8d6",
             "change": "uv isolated environment: no kernel install and no restart guard; every stage runs as a separate process with the Python of a hash-locked CPython 3.12.12 venv; Linux x86_64 only",
             "fixes_kept": ["TBL-M1", "TBL-M2", "TBL-M3", "TBL-m1", "TBL-m2", "TBL-m3", "TBL-m4", "TBL-m5", "TBL-m6", "TBL-m7"]
+        },
+        {
+            "revision": "0.4.0-candidate",
+            "date": "2026-10-15",
+            "base_commit": "049aeeb7339a270f17c8db294313911a4c00894b",
+            "review": "W20 notebook review of blob 179d8620 (prefix TBL2, 2026-10-14)",
+            "fixed": ["TBL2-M1", "TBL2-m1", "TBL2-m2", "TBL2-m3", "TBL2-m4", "TBL2-m5", "TBL2-m6", "TBL2-m7", "TBL2-m8", "TBL2-m9", "TBL2-S1", "TBL2-S2"],
+            "default_path_numbers_changed": False
         }
     ],
     "runtime_environment": {
@@ -172,7 +183,7 @@ def build_notebook():
             },
             "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
             "language_info": {"name": "python"},
-            "workshop_revision": "0.3.0-candidate",
+            "workshop_revision": "0.4.0-candidate",
         },
         "nbformat": 4,
         "nbformat_minor": 5,
@@ -196,7 +207,7 @@ def main():
             raise SystemExit(f"STALE: {out}; regenerate the workshop notebook")
         print(f"OK: {out}")
         return 0
-    out.write_text(content, encoding="utf-8")
+    out.write_text(content, encoding="utf-8", newline="\n")
     print(out)
     return 0
 

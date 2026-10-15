@@ -233,8 +233,8 @@ def test_state_written_by_one_stage_process_is_read_by_the_next(tmp_path):
     ns = load_stages(tmp_path)
     ok = {"valid": True}
     tables = [{"source_id": f"t{i}", "gold_recon": ok, "det_recon": {"valid": i != 5}} for i in range(10)]
-    qa = [{"denotation_correct": i < 40, "aggregation_correct": True, "pipeline_status": "ok"} for i in range(50)]
-    ns.update(canonical_tables=tables, qa_records=[{}] * 50, gold_qa=qa, structure_qa=qa, end_to_end_qa=qa[:30] + [dict(q, denotation_correct=False) for q in qa[30:]],
+    qa = [{"value_correct": i < 40, "strict_correct": i < 20, "aggregation_correct": True, "pipeline_status": "ok"} for i in range(50)]
+    ns.update(canonical_tables=tables, qa_records=[{}] * 50, gold_qa=qa, structure_qa=qa, end_to_end_qa=qa[:30] + [dict(q, value_correct=False, strict_correct=False) for q in qa[30:]],
               det_rows=[{"hit50": i != 5, "hit75": i != 5} for i in range(10)],
               structure_rows=[{"path": p, "grid_shape_exact": not (p == "detected_crop" and i in (5, 6))} for p in ("gold_crop", "detected_crop") for i in range(10)])
     ns["persist_state"]()
@@ -247,7 +247,8 @@ def test_state_written_by_one_stage_process_is_read_by_the_next(tmp_path):
     assert waterfall["detection"]["hit50"] == 9
     assert waterfall["structure_detected_crop"]["grid_exact"] == 8
     assert waterfall["reconstruction"]["valid_detected_crop"] == 9
-    assert waterfall["qa"]["gold_table_correct"] == 40 and waterfall["qa"]["end_to_end_correct"] == 30
+    assert waterfall["qa"]["gold_table_value_correct"] == 40 and waterfall["qa"]["end_to_end_value_correct"] == 30
+    assert waterfall["qa"]["gold_table_strict_correct"] == 20 and waterfall["qa"]["end_to_end_strict_correct"] == 20
     assert '"grid_exact": 8' in result.stdout
 
 
@@ -284,8 +285,8 @@ def test_markdown_and_metadata_state_the_platform_and_no_restart():
     meta = notebook()["metadata"]
     dimer = meta["dimer"]
     assert dimer["runtime_environment"]["platform"].startswith("Linux x86_64 only")
-    assert meta["workshop_revision"] == "0.3.0-candidate"
-    revision = dimer["review_revisions"][-1]
+    assert meta["workshop_revision"] == "0.4.0-candidate"
+    revision = next(r for r in dimer["review_revisions"] if r.get("revision") == "0.3.0-candidate")
     assert revision["revision"] == "0.3.0-candidate" and revision["base_commit"].startswith("a043211")
     assert dimer["clean_runtime_evidence"] == "pending"
 
@@ -293,6 +294,9 @@ def test_markdown_and_metadata_state_the_platform_and_no_restart():
 def test_cell_ids_are_stable_and_the_carrier_precedes_the_bootstrap():
     ids = [c["id"] for c in cells()]
     assert len(ids) == len(set(ids))
-    assert [i for i in ids if i != "uvcarrier"] == [f"dimer-table-workshop-{n:02d}" for n in range(67)]
+    # Cells added after 0.2.0 carry their own ids (uvcarrier; use-notice and references since 0.4.0).
+    named = ("uvcarrier", "use-notice", "references")
+    assert [i for i in ids if i not in named] == [f"dimer-table-workshop-{n:02d}" for n in range(67)]
+    assert ids.index("use-notice") == 1 and ids[-1] == "references"
     assert ids.index("dimer-table-workshop-04") < ids.index("uvcarrier") == ids.index(BOOT_ID) - 1
     assert cells()[ids.index("uvcarrier")]["metadata"] == {"jupyter": {"source_hidden": True}}

@@ -73,11 +73,13 @@ def test_structure_counts_compare_with_the_table_grid_not_clipped_reference_boxe
 
 def test_waterfall_reports_correct_answer_counts():
     ns = load_stages()
-    rows = [{"denotation_correct": i < 30, "aggregation_correct": True, "pipeline_status": "ok"} for i in range(50)]
+    rows = [{"value_correct": i < 30, "strict_correct": i < 20, "aggregation_correct": True, "pipeline_status": "ok"}
+            for i in range(50)]
     summary = ns["qa_summary"](rows)
-    assert summary["correct"] == 30 and abs(summary["denotation_accuracy"] - 0.6) < 1e-12
+    assert summary["value_correct"] == 30 and abs(summary["value_accuracy"] - 0.6) < 1e-12
+    assert summary["strict_correct"] == 20 and abs(summary["strict_accuracy"] - 0.4) < 1e-12
     waterfall = fn_src("stage_waterfall")
-    for key in ("gold_table_correct", "structure_only_correct", "end_to_end_correct", '"unit"'):
+    for key in ('("gold_table",gold_qa)', '("value","strict")', '"unit"'):
         assert key in waterfall
     assert "(out of 50" in markdown("### What to notice — waterfall")
 
@@ -358,7 +360,7 @@ def test_complex_probe_keeps_only_this_runs_panels():
 
 def test_notebook_records_the_review_revision():
     meta = notebook()["metadata"]
-    assert meta["workshop_revision"] == "0.3.0-candidate"
+    assert meta["workshop_revision"] == "0.4.0-candidate"
     record = meta["dimer"]["review_revisions"][0]
     assert record["base_commit"] == "c218d3119e157293949862d6972e77d4a029c6b0"
     assert {"TBL-M1", "TBL-M2", "TBL-M3"} <= set(record["fixed"])
