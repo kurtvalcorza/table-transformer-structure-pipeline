@@ -244,3 +244,30 @@ Local CPU run on 2026-10-15 (real pinned models and data; not hosted evidence), 
 
 The gap comes from lookups: TAPAS answered 19 of the 20 gold-table lookups with `SUM` over the selected cells. Lookup accuracy is 19/20 under the value rule and 1/20 under the strict rule; every aggregation question right by value also used the gold operator. Under the strict rule, structure-only → end-to-end lost 6 and gained 0, and gold → structure-only lost 0 and gained 0.
 
+
+### Colab CLI execution of revision 0.4.0-candidate — 2026-10-15
+
+- **Evidence.** [`execution-evidence/2026-10-15/DIMER_Table_Intelligence_Workshop_ec511d4_colab-cli-t4.ipynb`](execution-evidence/2026-10-15/DIMER_Table_Intelligence_Workshop_ec511d4_colab-cli-t4.ipynb), archived byte-for-byte, SHA-256 `9ab06cf07f62a50defdd424c115b238c265c56bfa1d7771db3151d17a90ce058`.
+- **Revision.** Branch head `ec511d4700ac22527ae7dc80afc7196bd1feb1c1` (PR #12), notebook blob `a9b4f0f764089745733a640ffcb370b604e85223` (0.4.0-candidate, with the co-primary scoring rules), downloaded from GitHub at the PR head and blob-verified before the session. Code-cell sources of the executed notebook match the blob (70 cells, same ids and order).
+- **Executor.** Colab CLI 0.7.4, fresh Colab Tesla T4 session via the workspace `colab-cli-serial-test-suite` (`colab new --gpu T4`, `colab exec -f`, `colab stop`), 2026-10-15 01:44–01:47 UTC. Code cells ran in order in one kernel; the `Executing cell k/N` log reads 1/30 … 30/30, sequential and complete. This is CLI sequential execution, not a browser Run all. Session stopped after the run.
+- **Path exercised.** Default path only: 10 canonical tables, 50 questions. Forms and uploads were not exercised; the threshold activity ran once inside the run (validation exact grids 23/23 at 0.50, 20/23 at 0.95, 3 tables changed), its rerun after `Run all` was not run, and BYOD was not run (`BYOD disabled on canonical Run all path.`).
+- **Environment.** Carried stage file and hash lock verified; isolated CPython 3.12.12 venv at `/content/work/env`, `lock_pins_checked` 66, `torch 2.14.0+cu130`, `transformers 4.57.6`, `timm 1.0.30`, `datasets 4.1.1`, `numpy 2.5.3`, `pandas 2.2.3`, `cuda:0` Tesla T4. No restart.
+- **Outcome.** **PASSED** — 30/30 code cells, 0 errors; 207.1 s wall.
+- **Results.** Same 10 canonical tables in the same order; split 21 / 23 / 50 tables. Detection AP50 0.900, hit@0.50 0.900 (9/10 pages detected; `1108.4723v1.4` missed, best rejected box score 0.745, IoU 0.716), mean IoU 0.778 (0.865 over the 9 detected pages); exact grids 10/10 gold-crop and 8/10 detected-crop (`1108.4723v1.4` miss, `1611.09238v1.1` 4 × 6 against 4 × 5); valid reconstructions 10/10 and 8/10. TAPAS, both co-primary rules:
+
+| Path | Value-equality | Strict-operator |
+|---|---|---|
+| Gold table | 40 / 50 | 22 / 50 |
+| Structure-only | 40 / 50 | 22 / 50 |
+| End-to-end | 30 / 50 | 16 / 50 |
+
+  The per-question trace and the transition lines printed (34 of 50 questions not right on all three paths under both rules). Value rule: 10 wrong on the gold table; gold → structure-only lost 0, gained 0; structure-only → end-to-end lost 10 (5 detection miss on `1108.4723v1.4`, 5 `header_or_limit_invalid` on `1611.09238v1.1`), gained 0. Strict rule: 28 wrong on the gold table; gold → structure-only lost 0, gained 0; structure-only → end-to-end lost 6, gained 0. By operator on the gold table: lookups value 19/20, strict 1/20; SUM 5/10, AVERAGE 6/10, COUNT 10/10 under both rules.
+- **Comparison.** The value-equality counts equal the 2026-10-03 hosted run's 40 / 40 / 30 (scored then under the old lookup rule) and the strict-operator counts equal the 2026-10-15 local CPU run's 22 / 22 / 16. Detection, per-table grid shapes, IoUs, reconstruction counts and the threshold activity are equal to the 2026-10-03 run. Every other difference in the printed output comes from this revision: new keys and lines (strict counts, accuracy by operator and per table, the trace, `loss_attribution`, `detected_pages` / `mean_best_iou_detected` / `selected_hit50`, the clipped crop trace, the sub-threshold score, `table_equals_gold_*`), and the TAPAS pandas `FutureWarning` blocks that the 2026-10-03 run printed are gone (TBL2-m2). Wall time 207.1 s against 226.0 s and detection latency are session variation.
+- **Boundary.** Saved outputs were inspected. Still open: a browser `Run all`, the threshold activity rerun after `Run all`, and BYOD with one accepted folder and one refused input (REL12). Status remains **Candidate**; `metadata.dimer.clean_runtime_evidence` is unchanged (`pending`).
+
+#### Recorded executions of this notebook
+
+| Date (UTC) | Commit / notebook blob | Executor | Path exercised | Wall | Outcome |
+|---|---|---|---|---|---|
+| 2026-10-15 | `ec511d4` / `a9b4f0f7` | Colab CLI 0.7.4, fresh Colab Tesla T4 | Default path, CLI sequential execution (not a browser Run all); forms/uploads not exercised | 207.1 s | **PASSED** — 30/30 code cells, 0 errors; QA value 40 / 40 / 30, strict 22 / 22 / 16; Candidate |
+| 2026-10-03 | `4e19c6e` / `179d8620` | Colab CLI 0.7.4, fresh Colab Tesla T4 | Default path, CLI sequential execution (not a browser Run all) | 226.0 s | **PASSED** — 30/30 code cells, 0 errors; QA 40 / 40 / 30 (old lookup rule); Candidate |
