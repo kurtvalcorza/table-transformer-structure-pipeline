@@ -851,9 +851,9 @@ def final_denotation(result):
     return result["cells"] if result["aggregation"]=="NONE" else result["numeric_answer"]
 
 
-def denotation_correct(result,record):
-    """Score the final denotation built from the predicted cells and the predicted operator (codex #3). A lookup
-    answered with SUM/AVERAGE/COUNT is correct only when that number equals the single gold cell's value."""
+def value_correct(result,record):
+    """Value-equality rule, one of two co-primary rules: score the final denotation built from the predicted cells and
+    the predicted operator. A lookup answered with SUM/AVERAGE/COUNT counts when that number equals the gold cell's value."""
     gold=record["gold_denotation"]
     predicted=final_denotation(result)
     if predicted is None:
@@ -866,6 +866,16 @@ def denotation_correct(result,record):
     if isinstance(predicted,list):
         return False
     return abs(float(predicted)-float(gold))<=1e-6
+
+
+def strict_correct(result,record):
+    """Strict-operator rule, the other co-primary rule: a lookup counts only when TAPAS predicted NONE and selected the
+    gold cell; an aggregation question needs the predicted operator to equal the gold one and the value to match."""
+    gold=record["gold_denotation"]
+    if isinstance(gold,list):
+        return result["aggregation"]=="NONE" and sorted(norm_cell(x) for x in result["cells"])==sorted(norm_cell(x) for x in gold)
+    value=result["numeric_answer"]
+    return result["aggregation"]==record["gold_aggregation"] and value is not None and abs(float(value)-float(gold))<=1e-6
 
 
 def selected_cells_match(result,record):
@@ -893,7 +903,7 @@ def score_path(path_name,table_provider):
                 "question_id":record["id"],"table_id":record["table_id"],"path":path_name,
                 "question":record["question"],"gold_aggregation":record["gold_aggregation"],
                 "predicted_aggregation":None,"gold_denotation":record["gold_denotation"],
-                "predicted_denotation":None,"denotation_correct":False,
+                "predicted_denotation":None,"value_correct":False,"strict_correct":False,
                 "aggregation_correct":False,"selected_cells_match":None,"coordinates_exact":False,
                 "selected_cells":[],"coordinates":[],
                 "pipeline_status":status,"latency_seconds":None,
@@ -907,7 +917,7 @@ def score_path(path_name,table_provider):
             "question":record["question"],"gold_aggregation":record["gold_aggregation"],
             "predicted_aggregation":result["aggregation"],"gold_denotation":record["gold_denotation"],
             "predicted_denotation":final_denotation(result),
-            "denotation_correct":denotation_correct(result,record),
+            "value_correct":value_correct(result,record),"strict_correct":strict_correct(result,record),
             "selected_cells_match":selected_cells_match(result,record),
             "coordinates_exact":coordinates_exact(result,record),
             "aggregation_correct":result["aggregation"]==record["gold_aggregation"],
@@ -935,8 +945,10 @@ def full_provider(item):
 def qa_summary(rows):
     return {
         "n":len(rows),
-        "correct":int(sum(r["denotation_correct"] for r in rows)),
-        "denotation_accuracy":float(np.mean([r["denotation_correct"] for r in rows])),
+        "value_correct":int(sum(r["value_correct"] for r in rows)),
+        "value_accuracy":float(np.mean([r["value_correct"] for r in rows])),
+        "strict_correct":int(sum(r["strict_correct"] for r in rows)),
+        "strict_accuracy":float(np.mean([r["strict_correct"] for r in rows])),
         "aggregation_accuracy":float(np.mean([r["aggregation_correct"] for r in rows])),
         "valid_questions":sum(r["pipeline_status"]=="ok" for r in rows),
         "lookups_with_matching_cells":sum(1 for r in rows if r.get("selected_cells_match")),
@@ -1556,9 +1568,11 @@ def stage_qa(args):
     for name,rows in (("gold_table",gold_qa),("structure_only",structure_qa),("end_to_end",end_to_end_qa)):
         by_op=defaultdict(list); by_table=defaultdict(list)
         for r in rows:
-            by_op[r["gold_aggregation"]].append(r["denotation_correct"]); by_table[r["table_id"]].append(r["denotation_correct"])
-        print(name,"by operator:",{k:f"{sum(v)}/{len(v)}" for k,v in by_op.items()})
-        print(name,"per table:",{k:f"{sum(v)}/{len(v)}" for k,v in by_table.items()})
+            pair=(r["value_correct"],r["strict_correct"])
+            by_op[r["gold_aggregation"]].append(pair); by_table[r["table_id"]].append(pair)
+        fmt=lambda v:f"value {sum(a for a,_ in v)}/{len(v)}, strict {sum(b for _,b in v)}/{len(v)}"
+        print(name,"by operator:",{k:fmt(v) for k,v in by_op.items()})
+        print(name,"per table:",{k:fmt(v) for k,v in by_table.items()})
     print({"tables":len(canonical_tables),"papers":len({x.get("paper_id") for x in canonical_tables}),
            "questions":len(qa_records),"note":"questions share tables and papers; they are not independent examples"})
 
@@ -1585,12 +1599,10 @@ def stage_waterfall(args):
         },
         "qa":{
             "questions":len(qa_records),
-            "gold_table_correct":qa_summary(gold_qa)["correct"],
-            "structure_only_correct":qa_summary(structure_qa)["correct"],
-            "end_to_end_correct":qa_summary(end_to_end_qa)["correct"],
-            "gold_table_denotation_accuracy":qa_summary(gold_qa)["denotation_accuracy"],
-            "structure_only_denotation_accuracy":qa_summary(structure_qa)["denotation_accuracy"],
-            "end_to_end_denotation_accuracy":qa_summary(end_to_end_qa)["denotation_accuracy"],
+            # Two co-primary scoring rules, neither a headline: value-equality and strict-operator (§22).
+            **{f"{name}_{rule}_{kind}":qa_summary(rows)[f"{rule}_{kind}"]
+               for name,rows in (("gold_table",gold_qa),("structure_only",structure_qa),("end_to_end",end_to_end_qa))
+               for rule in ("value","strict") for kind in ("correct","accuracy")},
         },
     }
     # TBL2-M1 / codex #1-#2: compare paths question by question. The gold-table path is a reference diagnostic, not a
@@ -1598,48 +1610,58 @@ def stage_waterfall(args):
     # can cancel. score_path walks qa_records in order for every path, so position i is the same question on all three.
     paths=list(zip(gold_qa,structure_qa,end_to_end_qa))
 
-    def compare(pairs):
-        lost=[b for a,b in pairs if a["denotation_correct"] and not b["denotation_correct"]]
-        gained=[b for a,b in pairs if b["denotation_correct"] and not a["denotation_correct"]]
+    def compare(pairs,key):
+        lost=[b for a,b in pairs if a[key] and not b[key]]
+        gained=[b for a,b in pairs if b[key] and not a[key]]
         return {
             "lost":len(lost),"gained":len(gained),"net_correct_change":len(gained)-len(lost),
             "lost_by_status":dict(Counter("answered_differently" if b["pipeline_status"]=="ok" else b["pipeline_status"] for b in lost)),
         }
 
+    def attribution(rule):
+        key=rule+"_correct"
+        return {
+            "wrong_on_gold_table":sum(1 for g,_s,_e in paths if not g[key]),
+            "gold_table_to_structure_only":compare([(g,s) for g,s,_e in paths],key),
+            "structure_only_to_end_to_end":compare([(s,e) for _g,s,e in paths],key),
+            "gold_table_to_end_to_end":compare([(g,e) for g,_s,e in paths],key),
+            "net_correct_change_vs_gold":{
+                "structure_only":waterfall["qa"][f"structure_only_{key}"]-waterfall["qa"][f"gold_table_{key}"],
+                "end_to_end":waterfall["qa"][f"end_to_end_{key}"]-waterfall["qa"][f"gold_table_{key}"],
+            },
+        }
+
     waterfall["loss_attribution"]={
-        "unit":"questions out of qa.questions, compared question by question; lost and gained are gross counts and net_correct_change = gained - lost",
-        "wrong_on_gold_table":sum(1 for g,_s,_e in paths if not g["denotation_correct"]),
-        "gold_table_to_structure_only":compare([(g,s) for g,s,_e in paths]),
-        "structure_only_to_end_to_end":compare([(s,e) for _g,s,e in paths]),
-        "gold_table_to_end_to_end":compare([(g,e) for g,_s,e in paths]),
-        "net_correct_change_vs_gold":{
-            "structure_only":waterfall["qa"]["structure_only_correct"]-waterfall["qa"]["gold_table_correct"],
-            "end_to_end":waterfall["qa"]["end_to_end_correct"]-waterfall["qa"]["gold_table_correct"],
-        },
+        "unit":"questions out of qa.questions, compared question by question under each co-primary rule; lost and gained are gross counts and net_correct_change = gained - lost",
+        "value":attribution("value"),
+        "strict":attribution("strict"),
     }
     print(json.dumps(waterfall,indent=2))
 
-    # Display only: each question not right on all three paths, its three correctness states and its transitions.
-    def transitions(g,s,e):
+    # Display only: each question not right on all three paths under either rule, with both rules' transitions.
+    def transitions(g,s,e,key):
         out=[]
-        if not g["denotation_correct"]:out.append("wrong on the gold table")
-        if g["denotation_correct"] and not s["denotation_correct"]:
+        if not g[key]:out.append("wrong on the gold table")
+        if g[key] and not s[key]:
             out.append("lost gold -> structure-only ("+("answered differently" if s["pipeline_status"]=="ok" else s["pipeline_status"])+")")
-        if s["denotation_correct"] and not g["denotation_correct"]:out.append("recovered on structure-only")
-        if s["denotation_correct"] and not e["denotation_correct"]:
+        if s[key] and not g[key]:out.append("recovered on structure-only")
+        if s[key] and not e[key]:
             if e["pipeline_status"]=="detection_miss":out.append("lost structure-only -> end-to-end (detection miss)")
             elif e["pipeline_status"]!="ok":out.append("lost structure-only -> end-to-end ("+e["pipeline_status"]+" on the detected crop)")
             else:out.append("lost structure-only -> end-to-end (answered differently; associated with the crop-path change)")
-        if e["denotation_correct"] and not s["denotation_correct"]:out.append("recovered end to end")
-        return "; ".join(out)
+        if e[key] and not s[key]:out.append("recovered end to end")
+        return "; ".join(out) or "right on every path"
 
-    trace=[(i,g,s,e) for i,(g,s,e) in enumerate(paths)
-           if not (g["denotation_correct"] and s["denotation_correct"] and e["denotation_correct"])]
-    mark=lambda r:"yes" if r["denotation_correct"] else "no"
-    print(f"\nPer-question trace: {len(trace)} of {len(paths)} questions were not answered correctly on all three paths")
-    print(f"{'question':<12} {'table':<18} {'gold':<5} {'struct':<7} {'e2e':<4} transitions")
+    rules=("value_correct","strict_correct")
+    trace=[(i,g,s,e) for i,(g,s,e) in enumerate(paths) if not all(r[k] for r in (g,s,e) for k in rules)]
+    mark=lambda r:("V" if r["value_correct"] else "-")+("S" if r["strict_correct"] else "-")
+    print(f"\nPer-question trace: {len(trace)} of {len(paths)} questions were not right on all three paths under both rules")
+    print("V = right under the value-equality rule, S = right under the strict-operator rule, - = wrong")
+    print(f"{'question':<24} {'operator gold/pred':<20} {'gold':<5} {'struct':<7} {'e2e':<4} transitions")
     for i,g,s,e in trace:
-        print(f"{str(g.get('question_id',i)):<12} {str(g.get('table_id','')):<18} {mark(g):<5} {mark(s):<7} {mark(e):<4} {transitions(g,s,e)}")
+        ops=f"{g.get('gold_aggregation','')}/{g.get('predicted_aggregation','')}"
+        print(f"{str(g.get('question_id',i)):<24} {ops:<20} {mark(g):<5} {mark(s):<7} {mark(e):<4} "
+              f"value: {transitions(g,s,e,'value_correct')} | strict: {transitions(g,s,e,'strict_correct')}")
 
 
 @stage("checkpoint")
@@ -1775,7 +1797,8 @@ def stage_exports(args):
     write_csv(
         out_dir/"qa_predictions.csv",qa_all,
         ["question_id","table_id","path","question","gold_aggregation","predicted_aggregation",
-         "gold_denotation","predicted_denotation","denotation_correct","aggregation_correct",
+         "gold_denotation","predicted_denotation","value_correct","strict_correct","aggregation_correct",
+         "selected_cells_match","coordinates_exact",
          "selected_cells","coordinates","pipeline_status","latency_seconds"]
     )
     write_csv(
@@ -2049,19 +2072,21 @@ def stage_summary(args):
     print(f"  valid gold-crop tables: {waterfall['reconstruction']['valid_gold_crop']} / {len(canonical_tables)}")
     print(f"  valid detected tables: {waterfall['reconstruction']['valid_detected_crop']} / {len(canonical_tables)}")
     print()
-    print("Stage 4 — TAPAS")
-    print(f"  gold-table denotation: {waterfall['qa']['gold_table_denotation_accuracy']:.3f}")
-    print(f"  structure-only denotation: {waterfall['qa']['structure_only_denotation_accuracy']:.3f}")
-    print(f"  end-to-end denotation: {waterfall['qa']['end_to_end_denotation_accuracy']:.3f}")
-    print(f"  correct answers of {len(qa_records)}: gold {waterfall['qa']['gold_table_correct']}, "
-          f"structure-only {waterfall['qa']['structure_only_correct']}, end-to-end {waterfall['qa']['end_to_end_correct']}")
+    print("Stage 4 — TAPAS (two co-primary scoring rules, side by side)")
+    print(f"  {'path':<16} {'value-equality':>16} {'strict-operator':>16}")
+    for name,label in (("gold_table","gold table"),("structure_only","structure-only"),("end_to_end","end-to-end")):
+        q=waterfall["qa"]
+        print(f"  {label:<16} {q[name+'_value_correct']:>4}/{len(qa_records)} ({q[name+'_value_accuracy']:.3f}) "
+              f"{q[name+'_strict_correct']:>4}/{len(qa_records)} ({q[name+'_strict_accuracy']:.3f})")
     attribution=waterfall.get("loss_attribution")
     if attribution:
-        print(f"  wrong on the gold table (the reference path): {attribution['wrong_on_gold_table']}")
-        for key,label in (("gold_table_to_structure_only","gold -> structure-only"),
-                          ("structure_only_to_end_to_end","structure-only -> end-to-end")):
-            c=attribution[key]
-            print(f"  {label}: lost {c['lost']}, gained {c['gained']}, net {c['net_correct_change']:+d} (loss_attribution in waterfall.json)")
+        for rule in ("value","strict"):
+            a=attribution[rule]
+            print(f"  {rule} rule: wrong on the gold table (the reference path) {a['wrong_on_gold_table']}; "
+                  + "; ".join(f"{label} lost {a[key]['lost']}, gained {a[key]['gained']}, net {a[key]['net_correct_change']:+d}"
+                              for key,label in (("gold_table_to_structure_only","gold -> structure-only"),
+                                                ("structure_only_to_end_to_end","structure-only -> end-to-end"))))
+        print("  (loss_attribution in waterfall.json)")
     if globals().get("byod_result") is not None:
         print()
         print(f"BYOD: {byod_result['pages']} page(s) processed, {len(byod_result['skipped'])} skipped; see {out_dir}/byod/")

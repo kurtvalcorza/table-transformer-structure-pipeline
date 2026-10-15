@@ -73,11 +73,13 @@ def test_structure_counts_compare_with_the_table_grid_not_clipped_reference_boxe
 
 def test_waterfall_reports_correct_answer_counts():
     ns = load_stages()
-    rows = [{"denotation_correct": i < 30, "aggregation_correct": True, "pipeline_status": "ok"} for i in range(50)]
+    rows = [{"value_correct": i < 30, "strict_correct": i < 20, "aggregation_correct": True, "pipeline_status": "ok"}
+            for i in range(50)]
     summary = ns["qa_summary"](rows)
-    assert summary["correct"] == 30 and abs(summary["denotation_accuracy"] - 0.6) < 1e-12
+    assert summary["value_correct"] == 30 and abs(summary["value_accuracy"] - 0.6) < 1e-12
+    assert summary["strict_correct"] == 20 and abs(summary["strict_accuracy"] - 0.4) < 1e-12
     waterfall = fn_src("stage_waterfall")
-    for key in ("gold_table_correct", "structure_only_correct", "end_to_end_correct", '"unit"'):
+    for key in ('("gold_table",gold_qa)', '("value","strict")', '"unit"'):
         assert key in waterfall
     assert "(out of 50" in markdown("### What to notice — waterfall")
 

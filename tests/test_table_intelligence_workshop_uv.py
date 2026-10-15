@@ -233,8 +233,8 @@ def test_state_written_by_one_stage_process_is_read_by_the_next(tmp_path):
     ns = load_stages(tmp_path)
     ok = {"valid": True}
     tables = [{"source_id": f"t{i}", "gold_recon": ok, "det_recon": {"valid": i != 5}} for i in range(10)]
-    qa = [{"denotation_correct": i < 40, "aggregation_correct": True, "pipeline_status": "ok"} for i in range(50)]
-    ns.update(canonical_tables=tables, qa_records=[{}] * 50, gold_qa=qa, structure_qa=qa, end_to_end_qa=qa[:30] + [dict(q, denotation_correct=False) for q in qa[30:]],
+    qa = [{"value_correct": i < 40, "strict_correct": i < 20, "aggregation_correct": True, "pipeline_status": "ok"} for i in range(50)]
+    ns.update(canonical_tables=tables, qa_records=[{}] * 50, gold_qa=qa, structure_qa=qa, end_to_end_qa=qa[:30] + [dict(q, value_correct=False, strict_correct=False) for q in qa[30:]],
               det_rows=[{"hit50": i != 5, "hit75": i != 5} for i in range(10)],
               structure_rows=[{"path": p, "grid_shape_exact": not (p == "detected_crop" and i in (5, 6))} for p in ("gold_crop", "detected_crop") for i in range(10)])
     ns["persist_state"]()
@@ -247,7 +247,8 @@ def test_state_written_by_one_stage_process_is_read_by_the_next(tmp_path):
     assert waterfall["detection"]["hit50"] == 9
     assert waterfall["structure_detected_crop"]["grid_exact"] == 8
     assert waterfall["reconstruction"]["valid_detected_crop"] == 9
-    assert waterfall["qa"]["gold_table_correct"] == 40 and waterfall["qa"]["end_to_end_correct"] == 30
+    assert waterfall["qa"]["gold_table_value_correct"] == 40 and waterfall["qa"]["end_to_end_value_correct"] == 30
+    assert waterfall["qa"]["gold_table_strict_correct"] == 20 and waterfall["qa"]["end_to_end_strict_correct"] == 20
     assert '"grid_exact": 8' in result.stdout
 
 

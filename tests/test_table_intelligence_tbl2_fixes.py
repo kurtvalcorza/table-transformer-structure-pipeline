@@ -35,7 +35,7 @@ BOOT_ID = "dimer-table-workshop-06"
 
 def _qa(correct, status=None, path="gold_table"):
     status = status or ["ok"] * len(correct)
-    return [{"question_id": f"q{i:02d}", "table_id": f"t{i // 5}", "path": path, "denotation_correct": c,
+    return [{"question_id": f"q{i:02d}", "table_id": f"t{i // 5}", "path": path, "value_correct": c, "strict_correct": c,
              "aggregation_correct": True, "pipeline_status": s} for i, (c, s) in enumerate(zip(correct, status, strict=True))]
 
 
@@ -62,7 +62,8 @@ def test_waterfall_attribution_on_a_synthetic_state_with_the_recorded_counts(tmp
     ns = load_stages(tmp_path)
     _synthetic_state(ns, gold, gold, e2e, e2e_status)
     ns["stage_waterfall"](None)
-    attribution = ns["waterfall"]["loss_attribution"]
+    attribution = ns["waterfall"]["loss_attribution"]["value"]
+    assert ns["waterfall"]["loss_attribution"]["strict"] == attribution  # synthetic: both rules agree here
     assert attribution["wrong_on_gold_table"] == 10
     assert attribution["gold_table_to_structure_only"] == {"lost": 0, "gained": 0, "net_correct_change": 0, "lost_by_status": {}}
     assert attribution["structure_only_to_end_to_end"] == {
@@ -72,8 +73,8 @@ def test_waterfall_attribution_on_a_synthetic_state_with_the_recorded_counts(tmp
     assert "lost_vs_gold_table" not in attribution
     out = capsys.readouterr().out
     assert "Per-question trace: 20 of 50 questions" in out
-    assert out.count("wrong on the gold table") == 10
-    assert out.count("(detection miss)") == 5 and out.count("(header_or_limit_invalid on the detected crop)") == 5
+    assert out.count("value: wrong on the gold table") == 10 and out.count("strict: wrong on the gold table") == 10
+    assert out.count("(detection miss)") == 10 and out.count("(header_or_limit_invalid on the detected crop)") == 10
 
 
 def test_waterfall_reports_recoveries_and_cancelling_losses_and_gains(tmp_path, capsys):
@@ -88,7 +89,7 @@ def test_waterfall_reports_recoveries_and_cancelling_losses_and_gains(tmp_path, 
     ns = load_stages(tmp_path)
     _synthetic_state(ns, gold, structure, e2e, ["ok"] * 50)
     ns["stage_waterfall"](None)
-    attribution = ns["waterfall"]["loss_attribution"]
+    attribution = ns["waterfall"]["loss_attribution"]["value"]
     assert attribution["gold_table_to_structure_only"]["lost"] == 1
     assert attribution["gold_table_to_structure_only"]["gained"] == 1
     assert attribution["gold_table_to_structure_only"]["net_correct_change"] == 0
@@ -104,18 +105,24 @@ def test_final_denotation_uses_the_predicted_operator(tmp_path):
     ns = load_stages(tmp_path)
     lookup = {"gold_denotation": ["12"], "gold_coordinates": [[0, 1]]}
     right_cell_with_count = {"cells": ["12"], "aggregation": "COUNT", "numeric_answer": 1.0, "coordinates": [[0, 1]]}
-    assert not ns["denotation_correct"](right_cell_with_count, lookup)  # final answer is 1, not 12
+    assert not ns["value_correct"](right_cell_with_count, lookup)  # final answer is 1, not 12
+    assert not ns["strict_correct"](right_cell_with_count, lookup)
     assert ns["selected_cells_match"](right_cell_with_count, lookup) is True  # diagnostic: the cell was right
     assert ns["coordinates_exact"](right_cell_with_count, lookup) is True
     right_cell_with_sum = {"cells": ["12"], "aggregation": "SUM", "numeric_answer": 12.0, "coordinates": [[0, 1]]}
-    assert ns["denotation_correct"](right_cell_with_sum, lookup)  # the final number equals the gold value
+    assert ns["value_correct"](right_cell_with_sum, lookup)  # the final number equals the gold value
+    assert not ns["strict_correct"](right_cell_with_sum, lookup)  # strict: a lookup needs NONE
     plain = {"cells": ["12"], "aggregation": "NONE", "numeric_answer": None, "coordinates": [[0, 1]]}
-    assert ns["denotation_correct"](plain, lookup) and ns["final_denotation"](plain) == ["12"]
+    assert ns["value_correct"](plain, lookup) and ns["strict_correct"](plain, lookup) and ns["final_denotation"](plain) == ["12"]
     total = {"gold_denotation": 30.0, "gold_coordinates": [[0, 1], [1, 1]]}
-    assert ns["denotation_correct"]({"cells": ["10", "20"], "aggregation": "SUM", "numeric_answer": 30.0,
-                                     "coordinates": [[0, 1], [1, 1]]}, total)
-    assert not ns["denotation_correct"]({"cells": ["30"], "aggregation": "NONE", "numeric_answer": None,
-                                         "coordinates": [[0, 1]]}, total)
+    summed = {"cells": ["10", "20"], "aggregation": "SUM", "numeric_answer": 30.0, "coordinates": [[0, 1], [1, 1]]}
+    total = {**total, "gold_aggregation": "SUM"}
+    assert ns["value_correct"](summed, total) and ns["strict_correct"](summed, total)
+    # Right value from the wrong operator: AVERAGE of 30 and 30 is 30, accepted by the value rule only.
+    wrong_op = {"cells": ["30", "30"], "aggregation": "AVERAGE", "numeric_answer": 30.0, "coordinates": [[0, 1], [1, 1]]}
+    assert ns["value_correct"](wrong_op, total) and not ns["strict_correct"](wrong_op, total)
+    as_lookup = {"cells": ["30"], "aggregation": "NONE", "numeric_answer": None, "coordinates": [[0, 1]]}
+    assert not ns["value_correct"](as_lookup, total) and not ns["strict_correct"](as_lookup, total)
     assert ns["selected_cells_match"](plain, total) is None
 
 

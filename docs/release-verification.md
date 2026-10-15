@@ -230,3 +230,17 @@ A second commit on the same branch answers a peer review of the fixes. Scoring c
 - **Other changes.** The gold-table path is described as a reference diagnostic, not a ceiling. `loss_attribution` reports gross losses and gains and `net_correct_change`, with `net_correct_change_vs_gold` replacing `lost_vs_gold_table`, and the trace shows each question's three states and transitions. Detection adds `selected_iou` / `selected_hit50` and labels AP as threshold-filtered. The sub-threshold diagnostic prints score and IoU; on the CPU run `1108.4723v1.4` had a best rejected box at score 0.745 with IoU 0.716. Structure rows export `reference_rows_retained` / `reference_columns_retained`. Reconstruction exports `headers_valid` (renamed from `header_exact`), `headers_equal_gold`, `table_equals_gold` and `text_cells_outside_crop`. Text visibility is `center-in-crop`; the CPU run found 0 cells outside any crop, so the policy changes no number. The QA cell prints accuracy by operator and per table, and the number of papers (6). `provenance.json` declares spec 2.5, the revision and the crop padding. The 0.90 detection threshold is described as a fixed demonstration operating point.
 - **Still needed.** A hosted run of the new blob; the CPU run is not hosted evidence.
 
+### 2026-10-15 co-primary scoring rules (owner decision, still revision 0.4.0-candidate)
+
+Kurt's decision: the value-equality rule and the strict-operator rule are **co-primary**, reported side by side, and neither is the headline. The value-equality rule (`value_correct`) is the final-answer value rule above. The strict-operator rule (`strict_correct`) counts a lookup only when TAPAS predicted `NONE`, and counts an aggregation question only when the predicted operator equals the gold operator and the value matches. Both appear in the QA cell, the per-operator and per-table breakdown, `waterfall.json` (`qa.<path>_<rule>_correct` / `_accuracy`, and `loss_attribution.value` / `.strict`), the per-question trace, the terminal summary, `qa_predictions.csv` (`value_correct`, `strict_correct`, with `predicted_aggregation` kept) and the conclusion template. The QA keys `*_correct` and `*_denotation_accuracy` and the CSV column `denotation_correct` are replaced by these names.
+
+Local CPU run on 2026-10-15 (real pinned models and data; not hosted evidence), QA and waterfall stages re-run with this stage file:
+
+| Path | Value-equality | Strict-operator |
+|---|---|---|
+| Gold table | 40 / 50 | 22 / 50 |
+| Structure-only | 40 / 50 | 22 / 50 |
+| End-to-end | 30 / 50 | 16 / 50 |
+
+The gap comes from lookups: TAPAS answered 19 of the 20 gold-table lookups with `SUM` over the selected cells. Lookup accuracy is 19/20 under the value rule and 1/20 under the strict rule; every aggregation question right by value also used the gold operator. Under the strict rule, structure-only → end-to-end lost 6 and gained 0, and gold → structure-only lost 0 and gained 0.
+
