@@ -256,6 +256,19 @@ FORBIDDEN_PATTERNS = (
 )
 
 
+# ARTIFACT_SPEC 2.0 SER7: the workshop's carried stage file and its notebook cells never export or read a pickle
+# (the stage state is JSON + PNG + npz). Checked on the raw text, so a call inside a carried string is found too.
+PICKLE_ARTIFACT_CALLS = re.compile(
+    r"^\s*(?:import|from)\s+(?:pickle|cloudpickle|dill|joblib)\b|\bpickle\.(?:dumps?|loads?)\s*\("
+    r"|\btorch\.save\s*\(|\bjoblib\.(?:dump|load)\s*\(|allow_pickle\s*=\s*True|\bstate\.pkl\b",
+    re.M,
+)
+
+
+def pickle_export_hits(text: str) -> list[str]:
+    return [match.group(0).strip() for match in PICKLE_ARTIFACT_CALLS.finditer(text)]
+
+
 class ValidationError(AssertionError):
     """Raised for any release-asset defect; the message names the file and rule."""
 
@@ -704,6 +717,12 @@ def validate_notebooks() -> None:
         f"`{WORKSHOP_NOTEBOOK_NAME}`" in registry,
         f"{WORKSHOP_NOTEBOOK_NAME} missing from tutorials/README.md",
     )
+    stage_hits = pickle_export_hits(_read(ROOT / "tools" / "table_intelligence_workshop.py"))
+    _check(not stage_hits, f"tools/table_intelligence_workshop.py must not export or read a pickle (SER7): {stage_hits[:3]}")
+    workshop = json.loads(_read(tutorials / WORKSHOP_NOTEBOOK_NAME))
+    cell_hits = [hit for cell in workshop["cells"] if cell["cell_type"] == "code"
+                 for hit in pickle_export_hits("".join(cell["source"]))]
+    _check(not cell_hits, f"{WORKSHOP_NOTEBOOK_NAME} code must not export or read a pickle (SER7): {cell_hits[:3]}")
     _check(f"`{EXPECTED_PROFILE}`" in registry, f"tutorials/README.md must record `{EXPECTED_PROFILE}`")
     _check(
         f"DIMER Notebook Specification {NOTEBOOK_SPEC}" in registry,
