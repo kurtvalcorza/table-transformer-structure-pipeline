@@ -245,6 +245,15 @@ Local CPU run on 2026-10-15 (real pinned models and data; not hosted evidence), 
 The gap comes from lookups: TAPAS answered 19 of the 20 gold-table lookups with `SUM` over the selected cells. Lookup accuracy is 19/20 under the value rule and 1/20 under the strict rule; every aggregation question right by value also used the gold operator. Under the strict rule, structure-only → end-to-end lost 6 and gained 0, and gold → structure-only lost 0 and gained 0.
 
 
+### Pending (REL14): blob `fb63c43e` — 2026-10-24
+
+The workshop notebook was regenerated from code commit `f946faa` (blob `a9b4f0f7` → `fb63c43e`). The
+carried stage file now saves the state passed between stage processes as `state.json` (plain JSON), PNG files and
+`arrays.npz` (`allow_pickle=False`), each checked against the SHA-256 recorded in `state.json` before it is read,
+instead of a pickled `state.pkl` (ARTIFACT_SPEC 2.0 SER7). Every stage restores that state, so the default path
+exercises the change. The runs recorded below are of earlier blobs and are history for those blobs only. A hosted
+run of `fb63c43e` is pending. Status stays **Candidate**.
+
 ### Colab CLI execution of revision 0.4.0-candidate — 2026-10-15
 
 - **Evidence.** [`execution-evidence/2026-10-15/DIMER_Table_Intelligence_Workshop_ec511d4_colab-cli-t4.ipynb`](execution-evidence/2026-10-15/DIMER_Table_Intelligence_Workshop_ec511d4_colab-cli-t4.ipynb), archived byte-for-byte, SHA-256 `9ab06cf07f62a50defdd424c115b238c265c56bfa1d7771db3151d17a90ce058`.
