@@ -1,0 +1,1751 @@
+[colab] Parsing notebook '<local-run-dir>/DIMER_Table_Intelligence_Workshop_a87f509_colab-cli-t4.ipynb'...
+[colab] Executing cell 1/30 - dimer-table-workshop-04...
+{'detection_threshold': 0.9, 'structure_threshold': 0.5, 'crop_padding': 10, 'tables': 10}
+[colab] Executing cell 2/30 - uvcarrier...
+Carried stage file and hash lock verified: ['requirements.lock.txt', 'table_intelligence_workshop.py']
+[colab] Executing cell 3/30 - dimer-table-workshop-06...
+GPU: Tesla T4
+Creating the isolated Python 3.12.12 environment...
+Installing the hashed dependency lock (several minutes; CUDA wheels are large)...
+{'python': '3.12.12', 'executable': '/content/work/env/bin/python', 'torch': '2.14.0+cu130', 'torchvision': '0.29.0+cu130', 'transformers': '4.57.6', 'timm': '1.0.30', 'datasets': '4.1.1', 'numpy': '2.5.3', 'numpy_source': 'hash lock (isolated environment)', 'pandas': '2.2.3', 'pillow': '11.3.0', 'lock_pins_checked': 66, 'device': 'cuda:0', 'gpu_name': 'Tesla T4'}
+[colab] Executing cell 4/30 - dimer-table-workshop-08...
+{'model_id': 'microsoft/table-transformer-detection', 'revision': '2357cbe2b5a5d1c03e54f32764f06058933b65ab', 'bytes': 115320191}
+{'model_id': 'microsoft/table-transformer-structure-recognition-v1.1-all', 'revision': '7587a7ef111d9dcbf8ac695f1376ab7014340a0c', 'bytes': 115515347}
+{'model_id': 'google/tapas-large-finetuned-wtq', 'revision': 'f58317ab2577d17647d9acafa790c744a0388b30', 'bytes': 1347256837}
+[colab] Executing cell 5/30 - dimer-table-workshop-10...
+train weights/scitsr-pd/data/train-00000-of-00001.parquet d295b918777425a26fa13a5c3ba076517429682ede8c71b671a8b6115968e465
+test weights/scitsr-pd/data/test-00000-of-00001.parquet 73af6317219349a08acdf1c8fee7cff21b463cdded64111b643123f7df4f8bed
+[colab] Executing cell 6/30 - dimer-table-workshop-12...
+{'carrier_tables': 94, 'geometry_sha256': 'd6d524c367a151ed8a41bda7eadf7679977256953888862c9d85186eeda2c66a'}
+[colab] Executing cell 7/30 - dimer-table-workshop-13...
+
+Generating train split: 0 examples [00:00, ? examples/s]
+Generating train split: 89 examples [00:00, 2669.81 examples/s]
+
+Generating test split: 0 examples [00:00, ? examples/s]
+Generating test split: 19 examples [00:00, 1679.70 examples/s]
+{'source_tables': 108, 'carrier_tables': 94, 'derived_tables': 94}
+[colab] Executing cell 8/30 - dimer-table-workshop-15...
+                                                                                
+ def stage_split(args):                                                         
+     global splits                                                              
+     rng=random.Random(42)                                                      
+     by_paper=defaultdict(list)                                                 
+     for item in derived:                                                       
+         by_paper[item["paper_id"]].append(item)                                
+                                                                                
+     papers=sorted(by_paper)                                                    
+     rng.shuffle(papers)                                                        
+     if len(papers)!=46:                                                        
+         raise RuntimeError(f"Expected the carrier's 46 papers, derived         
+ {len(papers)}")                                                                
+                                                                                
+     # Iterate the shuffled paper list, never a set: set order depends on       
+ per-process string hashing.                                                    
+     test_papers=papers[:10]                                                    
+     val_papers=papers[10:17]                                                   
+     train_papers=papers[17:]                                                   
+                                                                                
+     splits={                                                                   
+         "test":[x for p in test_papers for x in by_paper[p]],                  
+         "validation":[x for p in val_papers for x in by_paper[p]],             
+         "train":[x for p in train_papers for x in by_paper[p]],                
+     }                                                                          
+     expected={"test":21,"validation":23,"train":50}                            
+     if {k:len(v) for k,v in splits.items()}!=expected:                         
+         raise RuntimeError(f"Paper-disjoint split does not match the carrier:  
+ {({k:len(v) for k,v in splits.items()})}")                                     
+     print({k:{"tables":len(v),"papers":len({x["paper_id"] for x in v})} for    
+ k,v in splits.items()})                                                        
+                                                                                
+{'test': {'tables': 21, 'papers': 10}, 'validation': {'tables': 23, 'papers': 7}, 'train': {'tables': 50, 'papers': 29}}
+[colab] Executing cell 9/30 - dimer-table-workshop-17...
+                                                                                
+ def parse_number(text):                                                        
+     s=str(text).strip().replace(",","")                                        
+     if s.endswith("%"): s=s[:-1]                                               
+     if not NUMBER_RE.match(str(text).strip()):                                 
+         try:                                                                   
+             # permit comma-stripped representation                             
+             float(s)                                                           
+         except Exception:                                                      
+             return None                                                        
+     try:return float(s)                                                        
+     except Exception:return None                                               
+                                                                                
+ def eligible(item):                                                            
+     if item["has_spans"]: return False                                         
+     if not (3<=item["n_rows"]<=20 and 2<=item["n_cols"]<=12): return False     
+     grid=item["grid"]                                                          
+     if any(not str(x).strip() or len(str(x))>200 for row in grid for x in      
+ row): return False                                                             
+     headers=[norm_text(x) for x in grid[0]]                                    
+     if any(not x for x in headers) or len(set(headers))!=len(headers): return  
+ False                                                                          
+     row_ids=[norm_text(row[0]) for row in grid[1:]]                            
+     if any(not x for x in row_ids) or len(set(row_ids))!=len(row_ids): return  
+ False                                                                          
+     numeric_cols=[]                                                            
+     for c in range(1,item["n_cols"]):                                          
+         vals=[parse_number(row[c]) for row in grid[1:]]                        
+         if len(vals)>=2 and all(v is not None for v in vals):                  
+             numeric_cols.append(c)                                             
+     return bool(numeric_cols)                                                  
+                                                                                
+ def stage_select(args):                                                        
+     global canonical_tables                                                    
+     eligible_tables=[x for x in splits["test"] if eligible(x)]                 
+     eligible_tables.sort(key=lambda                                            
+ x:hashlib.sha256(f"42:{x['source_id']}".encode()).hexdigest())                 
+     canonical_tables=eligible_tables[:END_TO_END_TABLES]                       
+     if len(canonical_tables)!=END_TO_END_TABLES:                               
+         # Spec §18: canonical tables come from the paper-disjoint test split   
+ only; never borrow train/validation tables.                                    
+         raise RuntimeError(f"Only {len(canonical_tables)} QA-eligible test     
+ tables were derived")                                                          
+                                                                                
+     print([x["source_id"] for x in canonical_tables])                          
+                                                                                
+['1702.02925v1.7', '1605.06770v1.1', '1606.09371v1.5', '1407.3745v1.1', '1702.02925v1.3', '1108.4723v1.4', '1611.09238v1.1', '1108.4723v1.3', '1702.02925v1.6', '1606.09371v1.2']
+[colab] Executing cell 10/30 - dimer-table-workshop-19...
+                                                                                
+ def make_page(item):                                                           
+     table=item["image"]                                                        
+     left,top,right,bottom=120,160,120,120                                      
+     page=Image.new("RGB",(table.width+left+right,table.height+top+bottom),"whi 
+ te")                                                                           
+     draw=ImageDraw.Draw(page)                                                  
+     draw.text((left,48),f"Table {item['source_id']}",font=FONT,fill="black")   
+     page.paste(table,(left,top))                                               
+     draw.text((left,top+table.height+40),"Scientific table                     
+ excerpt",font=FONT,fill="gray")                                                
+     gt_box=[left,top,left+table.width,top+table.height]                        
+     return page,gt_box                                                         
+                                                                                
+ def stage_pages(args):                                                         
+     for item in canonical_tables:                                              
+         item["page"],item["page_gt_box"]=make_page(item)                       
+         item["page_sha256"]=image_digest(item["page"])                         
+                                                                                
+     print({"pages":len(canonical_tables),"page_sizes":[x["page"].size for x in 
+ canonical_tables[:3]]})                                                        
+                                                                                
+{'pages': 10, 'page_sizes': [(765, 537), (756, 492), (626, 416)]}
+[colab] Executing cell 11/30 - dimer-table-workshop-21...
+                                                                                
+ def box_iou(a,b):                                                              
+     x0=max(float(a[0]),float(b[0])); y0=max(float(a[1]),float(b[1]))           
+     x1=min(float(a[2]),float(b[2])); y1=min(float(a[3]),float(b[3]))           
+     inter=max(0,x1-x0)*max(0,y1-y0)                                            
+     aa=max(0,float(a[2])-float(a[0]))*max(0,float(a[3])-float(a[1]))           
+     bb=max(0,float(b[2])-float(b[0]))*max(0,float(b[3])-float(b[1]))           
+     u=aa+bb-inter                                                              
+     return inter/u if u>0 else 0.0                                             
+                                                                                
+ def ap_for_label(preds,refs,label,thr):                                        
+     det=[]                                                                     
+     n_gt=0                                                                     
+     for i,(p,r) in enumerate(zip(preds,refs,strict=True)):                     
+         gt=[x["box"] for x in r if x["label"]==label]                          
+         n_gt+=len(gt)                                                          
+         det += [(float(x["score"]),i,x["box"]) for x in p if                   
+ x["label"]==label]                                                             
+     det.sort(key=lambda x:-x[0])                                               
+     matched=defaultdict(set); hits=[]                                          
+     for score,i,box in det:                                                    
+         gt=[x["box"] for x in refs[i] if x["label"]==label]                    
+         best,bj=0,None                                                         
+         for j,g in enumerate(gt):                                              
+             if j in matched[i]: continue                                       
+             v=box_iou(box,g)                                                   
+             if v>best: best,bj=v,j                                             
+         if bj is not None and best>=thr:                                       
+             matched[i].add(bj); hits.append(1)                                 
+         else:hits.append(0)                                                    
+     if not hits or n_gt==0:return 0.0                                          
+     tp=np.cumsum(hits); recall=tp/n_gt; precision=tp/np.arange(1,len(hits)+1)  
+     mr=np.concatenate([[0],recall,[1]]);                                       
+ mp=np.concatenate([[0],precision,[0]])                                         
+     for i in range(len(mp)-2,-1,-1):mp[i]=max(mp[i],mp[i+1])                   
+     idx=np.where(mr[1:]!=mr[:-1])[0]                                           
+     return float(np.sum((mr[idx+1]-mr[idx])*mp[idx+1]))                        
+                                                                                
+[colab] Executing cell 12/30 - dimer-table-workshop-23...
+                                                                                
+ def load_detection_model():                                                    
+     """Load the verified detection snapshot (used here and by BYOD in §28).""" 
+     processor=AutoImageProcessor.from_pretrained(str(DETECTION_DIR),local_file 
+ s_only=True,trust_remote_code=False)                                           
+     model=TableTransformerForObjectDetection.from_pretrained(                  
+         str(DETECTION_DIR),                                                    
+         local_files_only=True,                                                 
+         trust_remote_code=False,                                               
+         use_pretrained_backbone=False,                                         
+     ).to(DEVICE).eval()                                                        
+     for p in model.parameters():p.requires_grad_(False)                        
+     return processor,model                                                     
+                                                                                
+ def detect_table(image,threshold=None):                                        
+     threshold=DETECTION_THRESHOLD if threshold is None else threshold          
+     inputs=det_processor(images=image,return_tensors="pt").to(DEVICE)          
+     with torch.inference_mode():                                               
+         out=det_model(**inputs)                                                
+     result=det_processor.post_process_object_detection(                        
+         out,target_sizes=[image.size[::-1]],threshold=float(threshold)         
+     )[0]                                                                       
+     rows=[]                                                                    
+     for score,label,box in                                                     
+ zip(result["scores"],result["labels"],result["boxes"],strict=True):            
+         name=det_model.config.id2label[int(label)]                             
+         if name in ("table","table rotated"):                                  
+             rows.append({"label":name,"score":float(score),"box":[float(v) for 
+ v in box.tolist()]})                                                           
+     rows.sort(key=lambda x:-x["score"])                                        
+     return rows                                                                
+                                                                                
+ def stage_detection(args):                                                     
+     global                                                                     
+ det_processor,det_model,det_load_seconds,det_params,det_times,det_peak         
+     load_transformers()                                                        
+     t0=time.perf_counter()                                                     
+     det_processor,det_model=load_detection_model()                             
+     det_load_seconds=time.perf_counter()-t0                                    
+     det_params=sum(p.numel() for p in det_model.parameters())                  
+                                                                                
+     _ = detect_table(canonical_tables[0]["page"])                              
+     if torch.cuda.is_available():torch.cuda.reset_peak_memory_stats()          
+     det_times=[]                                                               
+     for i,item in enumerate(canonical_tables):                                 
+         if torch.cuda.is_available():torch.cuda.synchronize()                  
+         t=time.perf_counter(); preds=detect_table(item["page"])                
+         if torch.cuda.is_available():torch.cuda.synchronize()                  
+         det_times.append(time.perf_counter()-t)                                
+         item["detections"]=preds                                               
+         item["selected_detection"]=preds[0] if preds else None                 
+     det_peak=torch.cuda.max_memory_allocated() if torch.cuda.is_available()    
+ else None                                                                      
+                                                                                
+     print({"mean_latency":float(np.mean(det_times)),"detections":[len(x["detec 
+ tions"]) for x in canonical_tables]})                                          
+     # TBL2-S2 (display only; timings and peak memory are already recorded):    
+ for a page without a detection                                                 
+     # above the threshold, the best table score the detector gave it below the 
+ threshold.                                                                     
+     below={}                                                                   
+     for item in canonical_tables:                                              
+         if item["selected_detection"] is None:                                 
+             rejected=detect_table(item["page"],threshold=0.0)  # sorted by     
+ score, highest first                                                           
+             below[item["source_id"]]=({"score":round(rejected[0]["score"],4),  
+                                        "iou_with_reference":round(box_iou(reje 
+ cted[0]["box"],item["page_gt_box"]),4)}                                        
+                                       if rejected else "none")                 
+     if below:                                                                  
+         print({"detection_threshold":DETECTION_THRESHOLD,"best_table_score_bel 
+ ow_threshold":below})                                                          
+                                                                                
+     # The detector is no longer needed: unload it before the structure model   
+ (sequential loading, spec §67).                                                
+     del det_model,det_processor                                                
+     gc.collect()                                                               
+     if torch.cuda.is_available():torch.cuda.empty_cache()                      
+                                                                                
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+The `max_size` parameter is deprecated and will be removed in v4.26. Please specify in `size['longest_edge'] instead`.
+Some weights of the model checkpoint at weights/table-transformer-detection were not used when initializing TableTransformerForObjectDetection: ['model.backbone.conv_encoder.model.layer2.0.downsample.1.num_batches_tracked', 'model.backbone.conv_encoder.model.layer3.0.downsample.1.num_batches_tracked', 'model.backbone.conv_encoder.model.layer4.0.downsample.1.num_batches_tracked']
+- This IS expected if you are initializing TableTransformerForObjectDetection from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+- This IS NOT expected if you are initializing TableTransformerForObjectDetection from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+{'mean_latency': 0.05878301110001303, 'detections': [1, 1, 1, 1, 1, 0, 1, 1, 1, 1]}
+{'detection_threshold': 0.9, 'best_table_score_below_threshold': {'1108.4723v1.4': {'score': 0.745, 'iou_with_reference': 0.7161}}}
+[colab] Executing cell 13/30 - dimer-table-workshop-25...
+                                                                                
+ def stage_detection_metrics(args):                                             
+     global det_rows,det_metrics                                                
+     det_pred_lists=[]                                                          
+     det_refs=[]                                                                
+     det_rows=[]                                                                
+     for item in canonical_tables:                                              
+         preds=[{"label":"table","score":x["score"],"box":x["box"]} for x in    
+ item["detections"]]                                                            
+         det_pred_lists.append(preds)                                           
+         det_refs.append([{"label":"table","box":item["page_gt_box"]}])         
+         best=max([box_iou(x["box"],item["page_gt_box"]) for x in               
+ item["detections"]],default=0.0)                                               
+         # Codex #7: the pipeline crops the highest-scoring detection, which    
+ need not be the best-overlapping one.                                          
+         chosen=item.get("selected_detection")                                  
+         selected=box_iou(chosen["box"],item["page_gt_box"]) if chosen else 0.0 
+         det_rows.append({                                                      
+             "table_id":item["source_id"],"predicted":bool(item["detections"]), 
+             "best_iou":best,"hit50":best>=0.5,"hit75":best>=0.75,              
+             "selected_iou":selected,"selected_hit50":selected>=0.5,            
+         })                                                                     
+                                                                                
+     det_metrics={                                                              
+         "ap50":ap_for_label(det_pred_lists,det_refs,"table",0.5),              
+         "ap75":ap_for_label(det_pred_lists,det_refs,"table",0.75),             
+         "hit50":float(np.mean([r["hit50"] for r in det_rows])),                
+         "hit75":float(np.mean([r["hit75"] for r in det_rows])),                
+         "mean_best_iou":float(np.mean([r["best_iou"] for r in det_rows])),     
+         "median_best_iou":float(np.median([r["best_iou"] for r in det_rows])), 
+     }                                                                          
+     # TBL2-m3: mean_best_iou scores a page with no detection as IoU 0; this    
+ mean covers the detected pages only.                                           
+     detected_ious=[r["best_iou"] for r in det_rows if r["predicted"]]          
+     det_metrics["detected_pages"]=len(detected_ious)                           
+     det_metrics["mean_best_iou_detected"]=float(np.mean(detected_ious)) if     
+ detected_ious else None                                                        
+     det_metrics["selected_hit50"]=float(np.mean([r["selected_hit50"] for r in  
+ det_rows]))                                                                    
+     det_metrics["mean_selected_iou"]=float(np.mean([r["selected_iou"] for r in 
+ det_rows]))                                                                    
+     det_metrics["ap_scope"]="threshold-filtered: only detections above the     
+ detection threshold are ranked"                                                
+     print(det_metrics)                                                         
+                                                                                
+{'ap50': 0.9, 'ap75': 0.9, 'hit50': 0.9, 'hit75': 0.9, 'mean_best_iou': 0.7782565328815216, 'median_best_iou': 0.8561918726184901, 'detected_pages': 9, 'mean_best_iou_detected': 0.8647294809794684, 'selected_hit50': 0.9, 'mean_selected_iou': 0.7782565328815216, 'ap_scope': 'threshold-filtered: only detections above the detection threshold are ranked'}
+[colab] Executing cell 14/30 - dimer-table-workshop-28...
+                                                                                
+ def padded_crop(page,box,pad=None):                                            
+     pad=CROP_PADDING if pad is None else pad                                   
+     x0,y0,x1,y1=[float(v) for v in box]                                        
+     cx0=max(0,int(math.floor(x0-pad))); cy0=max(0,int(math.floor(y0-pad)))     
+     cx1=min(page.width,int(math.ceil(x1+pad)));                                
+ cy1=min(page.height,int(math.ceil(y1+pad)))                                    
+     return page.crop((cx0,cy0,cx1,cy1)),[cx0,cy0,cx1,cy1]                      
+                                                                                
+ def translate_gold_objects(item,crop_box):                                     
+     page_x0,page_y0=120,160                                                    
+     cx0,cy0,cx1,cy1=crop_box                                                   
+     out=[]                                                                     
+     for obj in item["objects"]:                                                
+         x0,y0,x1,y1=obj["box"]                                                 
+         b=[x0+page_x0-cx0,y0+page_y0-cy0,x1+page_x0-cx0,y1+page_y0-cy0]        
+         b=[max(0,b[0]),max(0,b[1]),min(cx1-cx0,b[2]),min(cy1-cy0,b[3])]        
+         if b[2]>b[0] and b[3]>b[1]:                                            
+             out.append({"label":obj["label"],"box":b})                         
+     return out                                                                 
+                                                                                
+ def to_crop_frame(box,crop_box):                                               
+     return                                                                     
+ [box[0]-crop_box[0],box[1]-crop_box[1],box[2]-crop_box[0],box[3]-crop_box[1]]  
+                                                                                
+ def clip_to_crop(box,crop_box):                                                
+     """Clip a crop-frame box to the crop, as translate_gold_objects does       
+ before scoring (TBL2-m7)."""                                                   
+     return                                                                     
+ [max(0,box[0]),max(0,box[1]),min(crop_box[2]-crop_box[0],box[2]),min(crop_box[ 
+ 3]-crop_box[1],box[3])]                                                        
+                                                                                
+ def stage_crops(args):                                                         
+     for item in canonical_tables:                                              
+         gold_crop,gold_crop_box=padded_crop(item["page"],item["page_gt_box"])  
+         item["gold_crop"]=gold_crop; item["gold_crop_box"]=gold_crop_box       
+         item["gold_crop_objects"]=translate_gold_objects(item,gold_crop_box)   
+                                                                                
+         if item["selected_detection"] is not None:                             
+             det_crop,det_crop_box=padded_crop(item["page"],item["selected_dete 
+ ction"]["box"])                                                                
+             item["det_crop"]=det_crop; item["det_crop_box"]=det_crop_box       
+             item["det_crop_objects"]=translate_gold_objects(item,det_crop_box) 
+         else:                                                                  
+             item["det_crop"]=None; item["det_crop_box"]=None;                  
+ item["det_crop_objects"]=[]                                                    
+                                                                                
+     # Trace one reference row box through the frames: table -> page -> gold    
+ crop / detected crop.                                                          
+     trace_item=next((x for x in canonical_tables if x["selected_detection"] is 
+ not None),canonical_tables[0])                                                 
+     trace_box=next(o["box"] for o in trace_item["objects"] if                  
+ o["label"]=="table row")                                                       
+     trace_page=[trace_box[0]+120,trace_box[1]+160,trace_box[2]+120,trace_box[3 
+ ]+160]                                                                         
+     print({                                                                    
+         "table":trace_item["source_id"],                                       
+         "row_box_table_frame":[round(v,1) for v in trace_box],                 
+         "page_frame":[round(v,1) for v in trace_page],                         
+         "gold_crop_origin":trace_item["gold_crop_box"][:2],                    
+         "gold_crop_frame":[round(v,1) for v in                                 
+ to_crop_frame(trace_page,trace_item["gold_crop_box"])],                        
+         "detected_crop_origin":trace_item["det_crop_box"][:2] if               
+ trace_item["det_crop_box"] else None,                                          
+         "detected_crop_frame":[round(v,1) for v in                             
+ to_crop_frame(trace_page,trace_item["det_crop_box"])] if                       
+ trace_item["det_crop_box"] else None,                                          
+         # TBL2-m7: the same box clipped to the crop, which is what scoring     
+ uses.                                                                          
+         "detected_crop_frame_clipped":[round(v,1) for v in                     
+ clip_to_crop(to_crop_frame(trace_page,trace_item["det_crop_box"]),trace_item[" 
+ det_crop_box"])] if trace_item["det_crop_box"] else None,                      
+     })                                                                         
+                                                                                
+{'table': '1702.02925v1.7', 'row_box_table_frame': [3.0, 3.0, 522.0, 29.1], 'page_frame': [123.0, 163.0, 642.0, 189.1], 'gold_crop_origin': [110, 150], 'gold_crop_frame': [13.0, 13.0, 532.0, 39.1], 'detected_crop_origin': [124, 154], 'detected_crop_frame': [-1.0, 9.0, 518.0, 35.1], 'detected_crop_frame_clipped': [0, 9.0, 513, 35.1]}
+[colab] Executing cell 15/30 - dimer-table-workshop-30...
+                                                                                
+ def load_structure_model():                                                    
+     """Load the verified structure snapshot; §15, the activity after §18 and   
+ BYOD (§28) all use this loader."""                                             
+     processor=AutoImageProcessor.from_pretrained(                              
+         str(STRUCTURE_DIR),                                                    
+         local_files_only=True,                                                 
+         trust_remote_code=False,                                               
+         size={"shortest_edge":800,"longest_edge":800},                         
+     )                                                                          
+     model=TableTransformerForObjectDetection.from_pretrained(                  
+         str(STRUCTURE_DIR),                                                    
+         local_files_only=True,                                                 
+         trust_remote_code=False,                                               
+         use_pretrained_backbone=False,                                         
+     ).to(DEVICE).eval()                                                        
+     for p in model.parameters():p.requires_grad_(False)                        
+     return processor,model                                                     
+                                                                                
+ def recognize_structure(image,threshold=None):                                 
+     threshold=STRUCTURE_THRESHOLD if threshold is None else threshold          
+     inputs=struct_processor(images=image,return_tensors="pt").to(DEVICE)       
+     with torch.inference_mode():                                               
+         out=struct_model(**inputs)                                             
+     result=struct_processor.post_process_object_detection(                     
+         out,target_sizes=[image.size[::-1]],threshold=float(threshold)         
+     )[0]                                                                       
+     rows=[]                                                                    
+     for score,label,box in                                                     
+ zip(result["scores"],result["labels"],result["boxes"],strict=True):            
+         name=struct_model.config.id2label[int(label)]                          
+         rows.append({"label":name,"score":float(score),"box":[float(v) for v   
+ in box.tolist()]})                                                             
+     rows.sort(key=lambda x:-x["score"])                                        
+     return rows                                                                
+                                                                                
+ def timed_structure(crop):                                                     
+     if torch.cuda.is_available():torch.cuda.synchronize()                      
+     t=time.perf_counter(); raw=recognize_structure(crop)                       
+     if torch.cuda.is_available():torch.cuda.synchronize()                      
+     struct_times.append(time.perf_counter()-t)                                 
+     return raw                                                                 
+                                                                                
+ def stage_structure(args):                                                     
+     global                                                                     
+ struct_processor,struct_model,struct_load_seconds,struct_params,struct_times,s 
+ truct_peak                                                                     
+     load_transformers()                                                        
+     t0=time.perf_counter()                                                     
+     struct_processor,struct_model=load_structure_model()                       
+     struct_load_seconds=time.perf_counter()-t0                                 
+     struct_params=sum(p.numel() for p in struct_model.parameters())            
+                                                                                
+     _ = recognize_structure(canonical_tables[0]["gold_crop"])                  
+     if torch.cuda.is_available():torch.cuda.reset_peak_memory_stats()          
+     struct_times=[]  # one entry per crop (gold or detected), synchronised     
+ like the detection timings                                                     
+                                                                                
+     for item in canonical_tables:                                              
+         item["gold_structure_raw"]=timed_structure(item["gold_crop"])          
+         item["det_structure_raw"]=timed_structure(item["det_crop"]) if         
+ item["det_crop"] is not None else []                                           
+     struct_peak=torch.cuda.max_memory_allocated() if torch.cuda.is_available() 
+ else None                                                                      
+     print({"mean_seconds_per_crop":float(np.mean(struct_times)),"crops":len(st 
+ ruct_times)})                                                                  
+                                                                                
+     del struct_model,struct_processor                                          
+     gc.collect()                                                               
+     if torch.cuda.is_available():torch.cuda.empty_cache()                      
+                                                                                
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+{'mean_seconds_per_crop': 0.03733798226313698, 'crops': 19}
+[colab] Executing cell 16/30 - dimer-table-workshop-32...
+                                                                                
+ def nms_items(items,iou_threshold=None):                                       
+     iou_threshold=GRID_NMS_IOU if iou_threshold is None else iou_threshold     
+     kept=[]                                                                    
+     for item in sorted(items,key=lambda x:-x["score"]):                        
+         if all(box_iou(item["box"],k["box"])<iou_threshold for k in kept):     
+             kept.append(item)                                                  
+     return kept                                                                
+                                                                                
+ def grid_from_structure(raw):                                                  
+     rows=nms_items([x for x in raw if x["label"]=="table row"])                
+     cols=nms_items([x for x in raw if x["label"]=="table column"])             
+     rows.sort(key=lambda x:(x["box"][1]+x["box"][3])/2)                        
+     cols.sort(key=lambda x:(x["box"][0]+x["box"][2])/2)                        
+     cells=[]                                                                   
+     valid=bool(rows and cols)                                                  
+     for ri,r in enumerate(rows):                                               
+         row=[]                                                                 
+         for ci,c in enumerate(cols):                                           
+             b=[                                                                
+                 max(r["box"][0],c["box"][0]),max(r["box"][1],c["box"][1]),     
+                 min(r["box"][2],c["box"][2]),min(r["box"][3],c["box"][3]),     
+             ]                                                                  
+             if b[2]<=b[0] or b[3]<=b[1]:valid=False                            
+             row.append(b)                                                      
+         cells.append(row)                                                      
+     return {"rows":rows,"columns":cols,"cells":cells,"valid_geometry":valid}   
+                                                                                
+ def stage_grid(args):                                                          
+     for item in canonical_tables:                                              
+         item["gold_grid_pred"]=grid_from_structure(item["gold_structure_raw"]) 
+         item["det_grid_pred"]=grid_from_structure(item["det_structure_raw"])   
+ if item["det_crop"] is not None else                                           
+ {"rows":[],"columns":[],"cells":[],"valid_geometry":False}                     
+                                                                                
+[colab] Executing cell 17/30 - dimer-table-workshop-34...
+                                                                                
+ def source_cells_in_crop(item,crop_box):                                       
+     cx0,cy0,_,_=crop_box                                                       
+     page_left,page_top=120,160                                                 
+     out=[]                                                                     
+     for c in item["cells"]:                                                    
+         b=c["box"]                                                             
+         out.append({                                                           
+             **c,                                                               
+             "crop_box":[b[0]+page_left-cx0,b[1]+page_top-cy0,b[2]+page_left-cx 
+ 0,b[3]+page_top-cy0],                                                          
+         })                                                                     
+     return out                                                                 
+                                                                                
+ def contains(box,x,y):                                                         
+     return box[0]<=x<=box[2] and box[1]<=y<=box[3]                             
+                                                                                
+ def reconstruct_table(item,grid,crop_box):                                     
+     if not grid["valid_geometry"] or not grid["rows"] or not grid["columns"]:  
+         return                                                                 
+ {"valid":False,"reason":"grid_invalid","table":None,"mapped":0,"unmapped":len( 
+ item["cells"]),"ambiguous":0}                                                  
+     strings=[[[] for _ in grid["columns"]] for __ in grid["rows"]]             
+     mapped=unmapped=ambiguous=correct=0                                        
+     simple=[c for c in source_cells_in_crop(item,crop_box) if                  
+ c["row_start"]==c["row_end"] and c["col_start"]==c["col_end"]]                 
+     outside=sum(1 for c in simple if not center_in_crop(c,crop_box))           
+     if TEXT_VISIBILITY=="center-in-crop":                                      
+         simple=[c for c in simple if center_in_crop(c,crop_box)]               
+     for c in simple:                                                           
+         b=c["crop_box"]; x=(b[0]+b[2])/2; y=(b[1]+b[3])/2                      
+         ris=[i for i,r in enumerate(grid["rows"]) if contains(r["box"],x,y)]   
+         cis=[i for i,col in enumerate(grid["columns"]) if                      
+ contains(col["box"],x,y)]                                                      
+         if len(ris)==1 and len(cis)==1:                                        
+             ri,ci=ris[0],cis[0]                                                
+             strings[ri][ci].append(c["text"])                                  
+             mapped+=1                                                          
+             if ri==c["row_start"] and ci==c["col_start"]:correct+=1            
+         elif len(ris)==0 or len(cis)==0:                                       
+             unmapped+=1                                                        
+         else:                                                                  
+             ambiguous+=1                                                       
+     table=[[" ".join(cell).strip() for cell in row] for row in strings]        
+     headers=table[0] if table else []                                          
+     norm_headers=[norm_text(x) for x in headers]                               
+     valid_headers=bool(headers) and all(norm_headers) and                      
+ len(set(norm_headers))==len(norm_headers)                                      
+     valid=grid["valid_geometry"] and valid_headers and len(table)<=64 and      
+ len(headers)<=32                                                               
+     return {                                                                   
+         "valid":valid,                                                         
+         "reason":"ok" if valid else "header_or_limit_invalid",                 
+         "table":table,                                                         
+         "mapped":mapped,"unmapped":unmapped,"ambiguous":ambiguous,             
+         "assignment_accuracy":correct/max(1,len(simple)),                      
+         "headers_valid":valid_headers,                                         
+         "text_cells_outside_crop":outside,                                     
+     }                                                                          
+                                                                                
+ def stage_reconstruct(args):                                                   
+     for item in canonical_tables:                                              
+         item["gold_recon"]=reconstruct_table(item,item["gold_grid_pred"],item[ 
+ "gold_crop_box"])                                                              
+         if item["det_crop"] is not None:                                       
+             item["det_recon"]=reconstruct_table(item,item["det_grid_pred"],ite 
+ m["det_crop_box"])                                                             
+         else:                                                                  
+             item["det_recon"]={"valid":False,"reason":"detection_miss","table" 
+ :None,"mapped":0,"unmapped":len(item["cells"]),"ambiguous":0}                  
+                                                                                
+[colab] Executing cell 18/30 - dimer-table-workshop-36...
+                                                                                
+ def refs_for(item,key,label):                                                  
+     return [x for x in item[key] if x["label"]==label]                         
+                                                                                
+ def preds_for(item,key,label):                                                 
+     return [x for x in item[key] if x["label"]==label]                         
+                                                                                
+ def stage_structure_metrics(args):                                             
+     global structure_rows                                                      
+     structure_rows=[]                                                          
+     for path_name,pred_key,ref_key in [                                        
+         ("gold_crop","gold_structure_raw","gold_crop_objects"),                
+         ("detected_crop","det_structure_raw","det_crop_objects"),              
+     ]:                                                                         
+         for item in canonical_tables:                                          
+             gp=item["gold_grid_pred"] if path_name=="gold_crop" else           
+ item["det_grid_pred"]                                                          
+             # A page without a detection has no crop to recognize: a failed    
+ grid on this path, never an exact one.                                         
+             missed=path_name=="detected_crop" and item["det_crop"] is None     
+             gold_rows=refs_for(item,ref_key,"table row")                       
+             gold_cols=refs_for(item,ref_key,"table column")                    
+             pred_rows=preds_for(item,pred_key,"table row")                     
+             pred_cols=preds_for(item,pred_key,"table column")                  
+             best_r=[max([box_iou(g["box"],p["box"]) for p in                   
+ pred_rows],default=0) for g in gold_rows]                                      
+             best_c=[max([box_iou(g["box"],p["box"]) for p in                   
+ pred_cols],default=0) for g in gold_cols]                                      
+             # Counts are compared with the table's own grid, not with the      
+ reference boxes left inside a (possibly clipped) crop.                         
+             rows_exact=not missed and len(gp["rows"])==item["n_rows"]          
+             cols_exact=not missed and len(gp["columns"])==item["n_cols"]       
+             structure_rows.append({                                            
+                 "table_id":item["source_id"],"path":path_name,                 
+                 "status":"detection_miss" if missed else "ok",                 
+                 "gold_rows":item["n_rows"],"predicted_rows":len(gp["rows"]),   
+                 "gold_columns":item["n_cols"],"predicted_columns":len(gp["colu 
+ mns"]),                                                                        
+                 "row_count_exact":rows_exact,                                  
+                 "column_count_exact":cols_exact,                               
+                 "grid_shape_exact":rows_exact and cols_exact,                  
+                 "mean_row_iou":float(np.mean(best_r)) if best_r else 0.0,      
+                 "mean_column_iou":float(np.mean(best_c)) if best_c else 0.0,   
+                 # Codex #8: the IoUs above cover only the reference boxes that 
+ survive clipping to this crop.                                                 
+                 "reference_rows_retained":len(gold_rows),"reference_columns_re 
+ tained":len(gold_cols),                                                        
+             })                                                                 
+                                                                                
+     for path_name in ("gold_crop","detected_crop"):                            
+         subset=[r for r in structure_rows if r["path"]==path_name]             
+         print(path_name,{                                                      
+             "grid_exact":float(np.mean([r["grid_shape_exact"] for r in         
+ subset])),                                                                     
+             "mean_row_iou":float(np.mean([r["mean_row_iou"] for r in           
+ subset])),                                                                     
+             "mean_column_iou":float(np.mean([r["mean_column_iou"] for r in     
+ subset])),                                                                     
+         })                                                                     
+                                                                                
+gold_crop {'grid_exact': 1.0, 'mean_row_iou': 0.7618614681496387, 'mean_column_iou': 0.8883845937466599}
+detected_crop {'grid_exact': 0.8, 'mean_row_iou': 0.6934404567206169, 'mean_column_iou': 0.8087576124892546}
+[colab] Executing cell 19/30 - dimer-table-workshop-38...
+                                                                                
+ def grid_counts(crop,threshold):                                               
+     grid=grid_from_structure(recognize_structure(crop,threshold=threshold))    
+     return len(grid["rows"]),len(grid["columns"])                              
+                                                                                
+ def stage_activity(args):                                                      
+     global struct_processor,struct_model,activity_rows                         
+     load_transformers()                                                        
+     # Change one thing: the structure threshold, on validation tables only     
+ (canonical outputs are unaffected).                                            
+     ACTIVITY_STRUCTURE_THRESHOLD = float(args.threshold)                       
+     if not 0 <= ACTIVITY_STRUCTURE_THRESHOLD <= 1:                             
+         raise ValueError("ACTIVITY_STRUCTURE_THRESHOLD must be in [0,1]")      
+                                                                                
+     # Each stage process loads the structure model only if it is absent, and   
+ unloads what it loaded.                                                        
+     activity_loaded_model="struct_model" not in globals()                      
+     if activity_loaded_model:                                                  
+         struct_processor,struct_model=load_structure_model()                   
+                                                                                
+     activity_rows=[]                                                           
+     for item in splits["validation"]:                                          
+         page,page_box=make_page(item)                                          
+         crop,_=padded_crop(page,page_box)                                      
+         activity_rows.append({                                                 
+             "table":item["source_id"],                                         
+             "gold":(item["n_rows"],item["n_cols"]),                            
+             "at_reference":grid_counts(crop,STRUCTURE_THRESHOLD),              
+             "at_changed":grid_counts(crop,ACTIVITY_STRUCTURE_THRESHOLD),       
+         })                                                                     
+                                                                                
+     for name,threshold in                                                      
+ (("at_reference",STRUCTURE_THRESHOLD),("at_changed",ACTIVITY_STRUCTURE_THRESHO 
+ LD)):                                                                          
+         exact=sum(r[name]==r["gold"] for r in activity_rows)                   
+         print(f"threshold {threshold:.2f}: exact grids {exact} /               
+ {len(activity_rows)} validation tables")                                       
+     changed=[r for r in activity_rows if r["at_reference"]!=r["at_changed"]]   
+     print(f"Tables whose (rows, columns) changed: {len(changed)}")             
+     for r in changed:                                                          
+         print(" ",r)                                                           
+                                                                                
+     if activity_loaded_model:                                                  
+         del struct_model,struct_processor                                      
+         gc.collect()                                                           
+         if torch.cuda.is_available():torch.cuda.empty_cache()                  
+                                                                                
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+threshold 0.50: exact grids 23 / 23 validation tables
+threshold 0.95: exact grids 20 / 23 validation tables
+Tables whose (rows, columns) changed: 3
+  {'table': '1711.04434v1.7', 'gold': (7, 3), 'at_reference': (7, 3), 'at_changed': (5, 3)}
+  {'table': '1706.08653v2.6', 'gold': (14, 13), 'at_reference': (14, 13), 'at_changed': (14, 12)}
+  {'table': '1706.08653v2.12', 'gold': (8, 7), 'at_reference': (8, 7), 'at_changed': (8, 6)}
+[colab] Executing cell 20/30 - dimer-table-workshop-40...
+                                                                                
+ def outline(image,items,colors):                                               
+     out=image.convert("RGB").copy()                                            
+     d=ImageDraw.Draw(out)                                                      
+     for x in items:                                                            
+         d.rectangle(x["box"],outline=colors.get(x["label"],"orange"),width=2)  
+     return out                                                                 
+                                                                                
+ def stage_complex_probe(args):                                                 
+     global struct_processor,struct_model,complex_tables                        
+     load_transformers()                                                        
+     complex_tables=[x for x in splits["test"] if                               
+ x["has_spans"]][:COMPLEX_STRUCTURE_TABLES] if RUN_COMPLEX_STRUCTURE_PROBE else 
+ []                                                                             
+     complex_dir=Path(OUTPUT_DIR)/"complex_probe"                               
+     complex_dir.mkdir(parents=True,exist_ok=True)                              
+     for old_panel in complex_dir.glob("*.png"):                                
+         old_panel.unlink()  # keep only this run's panels                      
+                                                                                
+     if complex_tables and "struct_model" not in globals():                     
+         struct_processor,struct_model=load_structure_model()                   
+     for item in complex_tables:                                                
+         page,page_box=make_page(item)                                          
+         crop,crop_box=padded_crop(page,page_box)                               
+         gold_spans=[x for x in translate_gold_objects(item,crop_box) if        
+ x["label"]=="table spanning cell"]                                             
+         raw=recognize_structure(crop)                                          
+         grid=grid_from_structure(raw)                                          
+         pred_spans=[x for x in raw if x["label"]=="table spanning cell"]       
+         left=outline(crop,gold_spans,{"table spanning cell":"orange"})         
+         right=outline(crop,grid["rows"]+grid["columns"]+pred_spans,PROBE_COLOR 
+ S)                                                                             
+         panel=Image.new("RGB",(left.width+right.width+20,left.height+60),"whit 
+ e")                                                                            
+         panel.paste(left,(0,40)); panel.paste(right,(left.width+20,40))        
+         d=ImageDraw.Draw(panel)                                                
+         d.text((5,8),"gold spanning cells (orange)",fill="black")              
+         d.text((left.width+25,8),"predicted rows / columns / spanning          
+ cells",fill="black")                                                           
+         panel.save(complex_dir/f"{item['source_id'].replace('/','_')}.png")    
+         print({                                                                
+             "table":item["source_id"],                                         
+             "gold_grid":[item["n_rows"],item["n_cols"]],"predicted_grid":[len( 
+ grid["rows"]),len(grid["columns"])],                                           
+             "gold_spanning_cells":len(gold_spans),"predicted_spanning_cells":l 
+ en(pred_spans),                                                                
+         })                                                                     
+     if complex_tables:                                                         
+         print("These tables are intentionally excluded from the simple         
+ rectangular QA reconstruction contract.")                                      
+                                                                                
+     # The structure recognizer is no longer needed: unload it before TAPAS     
+ (sequential loading, spec §67).                                                
+     if "struct_model" in globals():                                            
+         del struct_model,struct_processor                                      
+     gc.collect()                                                               
+     if torch.cuda.is_available():torch.cuda.empty_cache()                      
+                                                                                
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+{'table': '1604.06285v1.2', 'gold_grid': [14, 2], 'predicted_grid': [13, 2], 'gold_spanning_cells': 3, 'predicted_spanning_cells': 0}
+{'table': '1604.06285v1.4', 'gold_grid': [5, 5], 'predicted_grid': [5, 5], 'gold_spanning_cells': 2, 'predicted_spanning_cells': 2}
+{'table': '1605.06770v1.2', 'gold_grid': [5, 4], 'predicted_grid': [3, 4], 'gold_spanning_cells': 2, 'predicted_spanning_cells': 1}
+These tables are intentionally excluded from the simple rectangular QA reconstruction contract.
+[colab] Executing cell 21/30 - dimer-table-workshop-42...
+                                                                                
+ def gold_table_dict(item):                                                     
+     headers=item["grid"][0]                                                    
+     body=item["grid"][1:]                                                      
+     return {headers[c]:[row[c] for row in body] for c in range(len(headers))}  
+                                                                                
+ def numeric_columns(item):                                                     
+     out=[]                                                                     
+     for c in range(1,item["n_cols"]):                                          
+         vals=[parse_number(row[c]) for row in item["grid"][1:]]                
+         if len(vals)>=2 and all(v is not None for v in vals):                  
+             out.append((c,vals))                                               
+     return out                                                                 
+                                                                                
+ def stage_questions(args):                                                     
+     global qa_records                                                          
+     qa_records=[]                                                              
+     for item in canonical_tables:                                              
+         grid=item["grid"]; headers=grid[0]; body=grid[1:]                      
+         row_ids=[row[0] for row in body]                                       
+         candidates=[]                                                          
+         for r in range(len(body)):                                             
+             for c in range(1,len(headers)):                                    
+                 candidates.append((r,c))                                       
+         candidates.sort(key=lambda                                             
+ rc:hashlib.sha256(f"{item['source_id']}:{rc[0]}:{rc[1]}".encode()).hexdigest() 
+ )                                                                              
+         for j,(r,c) in enumerate(candidates[:2]):                              
+             qa_records.append({                                                
+                 "id":f"{item['source_id']}-lookup-{j}",                        
+                 "table_id":item["source_id"],                                  
+                 "question":f"What is the {headers[c]} for {row_ids[r]}?",      
+                 "category":"NONE",                                             
+                 "gold_aggregation":"NONE",                                     
+                 "gold_coordinates":[[r,c]],                                    
+                 "gold_denotation":[body[r][c]],                                
+             })                                                                 
+         c,vals=numeric_columns(item)[0]                                        
+         coords=[[r,c] for r in range(len(body))]                               
+         qa_records += [                                                        
+             {                                                                  
+                 "id":f"{item['source_id']}-sum","table_id":item["source_id"],  
+                 "question":f"What is the total                                 
+ {headers[c]}?","category":"SUM",                                               
+                 "gold_aggregation":"SUM","gold_coordinates":coords,            
+                 "gold_denotation":float(sum(vals)),                            
+             },                                                                 
+             {                                                                  
+                 "id":f"{item['source_id']}-avg","table_id":item["source_id"],  
+                 "question":f"What is the average                               
+ {headers[c]}?","category":"AVERAGE",                                           
+                 "gold_aggregation":"AVERAGE","gold_coordinates":coords,        
+                 "gold_denotation":float(sum(vals)/len(vals)),                  
+             },                                                                 
+             {                                                                  
+                 "id":f"{item['source_id']}-count","table_id":item["source_id"] 
+ ,                                                                              
+                 "question":f"How many {headers[c]} entries are                 
+ listed?","category":"COUNT",                                                   
+                 "gold_aggregation":"COUNT","gold_coordinates":coords,          
+                 "gold_denotation":float(len(vals)),                            
+             },                                                                 
+         ]                                                                      
+                                                                                
+     if len(qa_records)!=50:                                                    
+         raise RuntimeError(f"Expected 50 questions, got {len(qa_records)}")    
+     counts=defaultdict(int)                                                    
+     for r in qa_records:counts[r["category"]]+=1                               
+     if dict(counts)!={"NONE":20,"SUM":10,"AVERAGE":10,"COUNT":10}:             
+         raise RuntimeError(f"Question mix mismatch: {dict(counts)}")           
+     print(dict(counts))                                                        
+                                                                                
+{'NONE': 20, 'SUM': 10, 'AVERAGE': 10, 'COUNT': 10}
+[colab] Executing cell 22/30 - dimer-table-workshop-44...
+                                                                                
+ def load_tapas():                                                              
+     global tapas_tokenizer,tapas_model,tapas_load_seconds,tapas_params         
+     tapas_tokenizer=TapasTokenizer.from_pretrained(str(TAPAS_DIR),local_files_ 
+ only=True)                                                                     
+     t0=time.perf_counter()                                                     
+     tapas_model=TapasForQuestionAnswering.from_pretrained(                     
+         str(TAPAS_DIR),local_files_only=True,dtype=torch.float32               
+     ).to(DEVICE).eval()                                                        
+     tapas_load_seconds=time.perf_counter()-t0                                  
+     for p in tapas_model.parameters():p.requires_grad_(False)                  
+     tapas_params=sum(p.numel() for p in tapas_model.parameters())              
+                                                                                
+ def compute_numeric(cells,aggregation):                                        
+     vals=[parse_number(x) for x in cells]                                      
+     if aggregation=="COUNT":return float(len(cells))                           
+     if any(v is None for v in vals):return None                                
+     if aggregation=="SUM":return float(sum(vals))                              
+     if aggregation=="AVERAGE":return float(sum(vals)/len(vals)) if vals else   
+ None                                                                           
+     return None                                                                
+                                                                                
+ def table_to_df(table):                                                        
+     headers=table[0]                                                           
+     body=table[1:]                                                             
+     return pd.DataFrame(body,columns=headers,dtype=object)                     
+                                                                                
+ def tapas_answer(table,question):                                              
+     df=table_to_df(table)                                                      
+     inputs=tapas_tokenizer(                                                    
+         table=df,                                                              
+         queries=[question],                                                    
+         padding="max_length",                                                  
+         truncation=True,                                                       
+         return_tensors="pt",                                                   
+     )                                                                          
+     model_inputs={k:v.to(DEVICE) for k,v in inputs.items()}                    
+     with torch.inference_mode():                                               
+         out=tapas_model(**model_inputs)                                        
+     coords,agg=tapas_tokenizer.convert_logits_to_predictions(                  
+         inputs,                                                                
+         out.logits.detach().cpu(),                                             
+         out.logits_aggregation.detach().cpu(),                                 
+     )                                                                          
+     selected=[list(x) for x in coords[0]]                                      
+     aggregation=AGGREGATIONS[int(agg[0])]                                      
+     cells=[str(df.iat[r,c]) for r,c in selected]                               
+     numeric=compute_numeric(cells,aggregation)                                 
+     answer=(f"{aggregation} > " if aggregation!="NONE" else "")+",             
+ ".join(cells)                                                                  
+     return {                                                                   
+         "coordinates":selected,"cells":cells,"aggregation":aggregation,        
+         "numeric_answer":numeric,"answer":answer,                              
+     }                                                                          
+                                                                                
+[colab] Executing cell 23/30 - dimer-table-workshop-46...
+                                                                                
+ def norm_cell(s):                                                              
+     return " ".join(str(s).lower().split())                                    
+                                                                                
+ def final_denotation(result):                                                  
+     """The pipeline's one final answer: the selected cell strings when TAPAS   
+ predicts NONE, otherwise the number its                                        
+     predicted operator computes from them (None when they do not parse)."""    
+     return result["cells"] if result["aggregation"]=="NONE" else               
+ result["numeric_answer"]                                                       
+                                                                                
+ def value_correct(result,record):                                              
+     """Value-equality rule, one of two co-primary rules: score the final       
+ denotation built from the predicted cells and                                  
+     the predicted operator. A lookup answered with SUM/AVERAGE/COUNT counts    
+ when that number equals the gold cell's value."""                              
+     gold=record["gold_denotation"]                                             
+     predicted=final_denotation(result)                                         
+     if predicted is None:                                                      
+         return False                                                           
+     if isinstance(gold,list):                                                  
+         if isinstance(predicted,list):                                         
+             return sorted(norm_cell(x) for x in                                
+ predicted)==sorted(norm_cell(x) for x in gold)                                 
+         value=parse_number(gold[0]) if len(gold)==1 else None                  
+         return value is not None and abs(float(predicted)-value)<=1e-6         
+     if isinstance(predicted,list):                                             
+         return False                                                           
+     return abs(float(predicted)-float(gold))<=1e-6                             
+                                                                                
+ def strict_correct(result,record):                                             
+     """Strict-operator rule, the other co-primary rule: a lookup counts only   
+ when TAPAS predicted NONE and selected the                                     
+     gold cell; an aggregation question needs the predicted operator to equal   
+ the gold one and the value to match."""                                        
+     gold=record["gold_denotation"]                                             
+     if isinstance(gold,list):                                                  
+         return result["aggregation"]=="NONE" and sorted(norm_cell(x) for x in  
+ result["cells"])==sorted(norm_cell(x) for x in gold)                           
+     value=result["numeric_answer"]                                             
+     return result["aggregation"]==record["gold_aggregation"] and value is not  
+ None and abs(float(value)-float(gold))<=1e-6                                   
+                                                                                
+ def score_path(path_name,table_provider):                                      
+     rows=[]                                                                    
+     times=[]                                                                   
+     for record in qa_records:                                                  
+         item=next(x for x in canonical_tables if                               
+ x["source_id"]==record["table_id"])                                            
+         table,status=table_provider(item)                                      
+         if table is None:                                                      
+             rows.append({                                                      
+                 "question_id":record["id"],"table_id":record["table_id"],"path 
+ ":path_name,                                                                   
+                 "question":record["question"],"gold_aggregation":record["gold_ 
+ aggregation"],                                                                 
+                 "predicted_aggregation":None,"gold_denotation":record["gold_de 
+ notation"],                                                                    
+                 "predicted_denotation":None,"value_correct":False,"strict_corr 
+ ect":False,                                                                    
+                 "aggregation_correct":False,"selected_cells_match":None,"coord 
+ inates_exact":False,                                                           
+                 "selected_cells":[],"coordinates":[],                          
+                 "pipeline_status":status,"latency_seconds":None,               
+             })                                                                 
+             continue                                                           
+         t=time.perf_counter()                                                  
+         result=tapas_answer(table,record["question"])                          
+         times.append(time.perf_counter()-t)                                    
+         rows.append({                                                          
+             "question_id":record["id"],"table_id":record["table_id"],"path":pa 
+ th_name,                                                                       
+             "question":record["question"],"gold_aggregation":record["gold_aggr 
+ egation"],                                                                     
+             "predicted_aggregation":result["aggregation"],"gold_denotation":re 
+ cord["gold_denotation"],                                                       
+             "predicted_denotation":final_denotation(result),                   
+             "value_correct":value_correct(result,record),"strict_correct":stri 
+ ct_correct(result,record),                                                     
+             "selected_cells_match":selected_cells_match(result,record),        
+             "coordinates_exact":coordinates_exact(result,record),              
+             "aggregation_correct":result["aggregation"]==record["gold_aggregat 
+ ion"],                                                                         
+             "selected_cells":result["cells"],"coordinates":result["coordinates 
+ "],                                                                            
+             "pipeline_status":"ok","latency_seconds":times[-1],                
+         })                                                                     
+     return rows,times                                                          
+                                                                                
+ def gold_provider(item):                                                       
+     return item["grid"],"ok"                                                   
+                                                                                
+ def struct_provider(item):                                                     
+     r=item["gold_recon"]                                                       
+     return (r["table"],"ok") if r["valid"] else (None,r["reason"])             
+                                                                                
+ def full_provider(item):                                                       
+     if item["selected_detection"] is None:return None,"detection_miss"         
+     r=item["det_recon"]                                                        
+     return (r["table"],"ok") if r["valid"] else (None,r["reason"])             
+                                                                                
+ def qa_summary(rows):                                                          
+     return {                                                                   
+         "n":len(rows),                                                         
+         "value_correct":int(sum(r["value_correct"] for r in rows)),            
+         "value_accuracy":float(np.mean([r["value_correct"] for r in rows])),   
+         "strict_correct":int(sum(r["strict_correct"] for r in rows)),          
+         "strict_accuracy":float(np.mean([r["strict_correct"] for r in rows])), 
+         "aggregation_accuracy":float(np.mean([r["aggregation_correct"] for r   
+ in rows])),                                                                    
+         "valid_questions":sum(r["pipeline_status"]=="ok" for r in rows),       
+         "lookups_with_matching_cells":sum(1 for r in rows if                   
+ r.get("selected_cells_match")),                                                
+         "coordinate_accuracy":float(np.mean([bool(r.get("coordinates_exact"))  
+ for r in rows])),                                                              
+     }                                                                          
+                                                                                
+ def stage_qa(args):                                                            
+     global                                                                     
+ gold_qa,gold_tapas_times,structure_qa,structure_tapas_times,end_to_end_qa,end_ 
+ tapas_times,tapas_peak                                                         
+     load_transformers()                                                        
+     load_pandas()                                                              
+     load_tapas()                                                               
+     print({"parameters":tapas_params,"load_seconds":tapas_load_seconds})       
+     if torch.cuda.is_available():torch.cuda.reset_peak_memory_stats()  # TAPAS 
+ peak only, not the earlier stages                                              
+     gold_qa,gold_tapas_times=score_path("gold_table",gold_provider)            
+     structure_qa,structure_tapas_times=score_path("structure_only",struct_prov 
+ ider)                                                                          
+     end_to_end_qa,end_tapas_times=score_path("end_to_end",full_provider)       
+     tapas_peak=torch.cuda.max_memory_allocated() if torch.cuda.is_available()  
+ else None                                                                      
+                                                                                
+     print("Gold:",qa_summary(gold_qa))                                         
+     print("Structure-only:",qa_summary(structure_qa))                          
+     print("End-to-end:",qa_summary(end_to_end_qa))                             
+     # Codex #10 (display only): accuracy by operator and per table; the 50     
+ questions share tables and papers.                                             
+     for name,rows in                                                           
+ (("gold_table",gold_qa),("structure_only",structure_qa),("end_to_end",end_to_e 
+ nd_qa)):                                                                       
+         by_op=defaultdict(list); by_table=defaultdict(list)                    
+         for r in rows:                                                         
+             pair=(r["value_correct"],r["strict_correct"])                      
+             by_op[r["gold_aggregation"]].append(pair);                         
+ by_table[r["table_id"]].append(pair)                                           
+         fmt=lambda v:f"value {sum(a for a,_ in v)}/{len(v)}, strict {sum(b for 
+ _,b in v)}/{len(v)}"                                                           
+         print(name,"by operator:",{k:fmt(v) for k,v in by_op.items()})         
+         print(name,"per table:",{k:fmt(v) for k,v in by_table.items()})        
+     print({"tables":len(canonical_tables),"papers":len({x.get("paper_id") for  
+ x in canonical_tables}),                                                       
+            "questions":len(qa_records),"note":"questions share tables and      
+ papers; they are not independent examples"})                                   
+                                                                                
+{'parameters': 336734214, 'load_seconds': 0.7502506320001885}
+Gold: {'n': 50, 'value_correct': 40, 'value_accuracy': 0.8, 'strict_correct': 22, 'strict_accuracy': 0.44, 'aggregation_accuracy': 0.62, 'valid_questions': 50, 'lookups_with_matching_cells': 19, 'coordinate_accuracy': 0.8}
+Structure-only: {'n': 50, 'value_correct': 40, 'value_accuracy': 0.8, 'strict_correct': 22, 'strict_accuracy': 0.44, 'aggregation_accuracy': 0.62, 'valid_questions': 50, 'lookups_with_matching_cells': 19, 'coordinate_accuracy': 0.8}
+End-to-end: {'n': 50, 'value_correct': 30, 'value_accuracy': 0.6, 'strict_correct': 16, 'strict_accuracy': 0.32, 'aggregation_accuracy': 0.5, 'valid_questions': 40, 'lookups_with_matching_cells': 15, 'coordinate_accuracy': 0.6}
+gold_table by operator: {'NONE': 'value 19/20, strict 1/20', 'SUM': 'value 5/10, strict 5/10', 'AVERAGE': 'value 6/10, strict 6/10', 'COUNT': 'value 10/10, strict 10/10'}
+gold_table per table: {'1702.02925v1.7': 'value 3/5, strict 1/5', '1605.06770v1.1': 'value 3/5, strict 1/5', '1606.09371v1.5': 'value 5/5, strict 3/5', '1407.3745v1.1': 'value 4/5, strict 3/5', '1702.02925v1.3': 'value 3/5, strict 1/5', '1108.4723v1.4': 'value 5/5, strict 3/5', '1611.09238v1.1': 'value 5/5, strict 3/5', '1108.4723v1.3': 'value 5/5, strict 3/5', '1702.02925v1.6': 'value 3/5, strict 1/5', '1606.09371v1.2': 'value 4/5, strict 3/5'}
+structure_only by operator: {'NONE': 'value 19/20, strict 1/20', 'SUM': 'value 5/10, strict 5/10', 'AVERAGE': 'value 6/10, strict 6/10', 'COUNT': 'value 10/10, strict 10/10'}
+structure_only per table: {'1702.02925v1.7': 'value 3/5, strict 1/5', '1605.06770v1.1': 'value 3/5, strict 1/5', '1606.09371v1.5': 'value 5/5, strict 3/5', '1407.3745v1.1': 'value 4/5, strict 3/5', '1702.02925v1.3': 'value 3/5, strict 1/5', '1108.4723v1.4': 'value 5/5, strict 3/5', '1611.09238v1.1': 'value 5/5, strict 3/5', '1108.4723v1.3': 'value 5/5, strict 3/5', '1702.02925v1.6': 'value 3/5, strict 1/5', '1606.09371v1.2': 'value 4/5, strict 3/5'}
+end_to_end by operator: {'NONE': 'value 15/20, strict 1/20', 'SUM': 'value 3/10, strict 3/10', 'AVERAGE': 'value 4/10, strict 4/10', 'COUNT': 'value 8/10, strict 8/10'}
+end_to_end per table: {'1702.02925v1.7': 'value 3/5, strict 1/5', '1605.06770v1.1': 'value 3/5, strict 1/5', '1606.09371v1.5': 'value 5/5, strict 3/5', '1407.3745v1.1': 'value 4/5, strict 3/5', '1702.02925v1.3': 'value 3/5, strict 1/5', '1108.4723v1.4': 'value 0/5, strict 0/5', '1611.09238v1.1': 'value 0/5, strict 0/5', '1108.4723v1.3': 'value 5/5, strict 3/5', '1702.02925v1.6': 'value 3/5, strict 1/5', '1606.09371v1.2': 'value 4/5, strict 3/5'}
+{'tables': 10, 'papers': 6, 'questions': 50, 'note': 'questions share tables and papers; they are not independent examples'}
+[colab] Executing cell 24/30 - dimer-table-workshop-49...
+                                                                                
+ def stage_waterfall(args):                                                     
+     global waterfall                                                           
+     waterfall={                                                                
+         "tables":len(canonical_tables),                                        
+         "unit":"detection, structure and reconstruction values count tables    
+ out of `tables`; qa gives accuracy and correct-answer counts",                 
+         "detection":{                                                          
+             "hit50":sum(r["hit50"] for r in det_rows),                         
+             "hit75":sum(r["hit75"] for r in det_rows),                         
+         },                                                                     
+         "structure_gold_crop":{                                                
+             "grid_exact":sum(r["grid_shape_exact"] for r in structure_rows if  
+ r["path"]=="gold_crop"),                                                       
+         },                                                                     
+         "structure_detected_crop":{                                            
+             "grid_exact":sum(r["grid_shape_exact"] for r in structure_rows if  
+ r["path"]=="detected_crop"),                                                   
+         },                                                                     
+         "reconstruction":{                                                     
+             "valid_gold_crop":sum(x["gold_recon"]["valid"] for x in            
+ canonical_tables),                                                             
+             "valid_detected_crop":sum(x["det_recon"]["valid"] for x in         
+ canonical_tables),                                                             
+         },                                                                     
+         "qa":{                                                                 
+             "questions":len(qa_records),                                       
+             # Two co-primary scoring rules, neither a headline: value-equality 
+ and strict-operator (§22).                                                     
+             **{f"{name}_{rule}_{kind}":qa_summary(rows)[f"{rule}_{kind}"]      
+                for name,rows in                                                
+ (("gold_table",gold_qa),("structure_only",structure_qa),("end_to_end",end_to_e 
+ nd_qa))                                                                        
+                for rule in ("value","strict") for kind in                      
+ ("correct","accuracy")},                                                       
+         },                                                                     
+     }                                                                          
+     # TBL2-M1 / codex #1-#2: compare paths question by question. The           
+ gold-table path is a reference diagnostic, not a                               
+     # ceiling: a changed table can turn a wrong gold answer right as well as a 
+ right one wrong, and losses and gains                                          
+     # can cancel. score_path walks qa_records in order for every path, so      
+ position i is the same question on all three.                                  
+     paths=list(zip(gold_qa,structure_qa,end_to_end_qa))                        
+                                                                                
+     def compare(pairs,key):                                                    
+         lost=[b for a,b in pairs if a[key] and not b[key]]                     
+         gained=[b for a,b in pairs if b[key] and not a[key]]                   
+         return {                                                               
+             "lost":len(lost),"gained":len(gained),"net_correct_change":len(gai 
+ ned)-len(lost),                                                                
+             "lost_by_status":dict(Counter("answered_differently" if            
+ b["pipeline_status"]=="ok" else b["pipeline_status"] for b in lost)),          
+         }                                                                      
+                                                                                
+     def attribution(rule):                                                     
+         key=rule+"_correct"                                                    
+         return {                                                               
+             "wrong_on_gold_table":sum(1 for g,_s,_e in paths if not g[key]),   
+             "gold_table_to_structure_only":compare([(g,s) for g,s,_e in        
+ paths],key),                                                                   
+             "structure_only_to_end_to_end":compare([(s,e) for _g,s,e in        
+ paths],key),                                                                   
+             "gold_table_to_end_to_end":compare([(g,e) for g,_s,e in            
+ paths],key),                                                                   
+             "net_correct_change_vs_gold":{                                     
+                 "structure_only":waterfall["qa"][f"structure_only_{key}"]-wate 
+ rfall["qa"][f"gold_table_{key}"],                                              
+                 "end_to_end":waterfall["qa"][f"end_to_end_{key}"]-waterfall["q 
+ a"][f"gold_table_{key}"],                                                      
+             },                                                                 
+         }                                                                      
+                                                                                
+     waterfall["loss_attribution"]={                                            
+         "unit":"questions out of qa.questions, compared question by question   
+ under each co-primary rule; lost and gained are gross counts and               
+ net_correct_change = gained - lost",                                           
+         "value":attribution("value"),                                          
+         "strict":attribution("strict"),                                        
+     }                                                                          
+     print(json.dumps(waterfall,indent=2))                                      
+                                                                                
+     # Display only: each question not right on all three paths under either    
+ rule, with both rules' transitions.                                            
+     def transitions(g,s,e,key):                                                
+         out=[]                                                                 
+         if not g[key]:out.append("wrong on the gold table")                    
+         if g[key] and not s[key]:                                              
+             out.append("lost gold -> structure-only ("+("answered differently" 
+ if s["pipeline_status"]=="ok" else s["pipeline_status"])+")")                  
+         if s[key] and not g[key]:out.append("recovered on structure-only")     
+         if s[key] and not e[key]:                                              
+             if e["pipeline_status"]=="detection_miss":out.append("lost         
+ structure-only -> end-to-end (detection miss)")                                
+             elif e["pipeline_status"]!="ok":out.append("lost structure-only -> 
+ end-to-end ("+e["pipeline_status"]+" on the detected crop)")                   
+             else:out.append("lost structure-only -> end-to-end (answered       
+ differently; associated with the crop-path change)")                           
+         if e[key] and not s[key]:out.append("recovered end to end")            
+         return "; ".join(out) or "right on every path"                         
+                                                                                
+     rules=("value_correct","strict_correct")                                   
+     trace=[(i,g,s,e) for i,(g,s,e) in enumerate(paths) if not all(r[k] for r   
+ in (g,s,e) for k in rules)]                                                    
+     mark=lambda r:("V" if r["value_correct"] else "-")+("S" if                 
+ r["strict_correct"] else "-")                                                  
+     print(f"\nPer-question trace: {len(trace)} of {len(paths)} questions were  
+ not right on all three paths under both rules")                                
+     print("V = right under the value-equality rule, S = right under the        
+ strict-operator rule, - = wrong")                                              
+     print(f"{'question':<24} {'operator gold/pred':<20} {'gold':<5}            
+ {'struct':<7} {'e2e':<4} transitions")                                         
+     for i,g,s,e in trace:                                                      
+         ops=f"{g.get('gold_aggregation','')}/{g.get('predicted_aggregation','' 
+ )}"                                                                            
+         print(f"{str(g.get('question_id',i)):<24} {ops:<20} {mark(g):<5}       
+ {mark(s):<7} {mark(e):<4} "                                                    
+               f"value: {transitions(g,s,e,'value_correct')} | strict:          
+ {transitions(g,s,e,'strict_correct')}")                                        
+                                                                                
+{
+  "tables": 10,
+  "unit": "detection, structure and reconstruction values count tables out of `tables`; qa gives accuracy and correct-answer counts",
+  "detection": {
+    "hit50": 9,
+    "hit75": 9
+  },
+  "structure_gold_crop": {
+    "grid_exact": 10
+  },
+  "structure_detected_crop": {
+    "grid_exact": 8
+  },
+  "reconstruction": {
+    "valid_gold_crop": 10,
+    "valid_detected_crop": 8
+  },
+  "qa": {
+    "questions": 50,
+    "gold_table_value_correct": 40,
+    "gold_table_value_accuracy": 0.8,
+    "gold_table_strict_correct": 22,
+    "gold_table_strict_accuracy": 0.44,
+    "structure_only_value_correct": 40,
+    "structure_only_value_accuracy": 0.8,
+    "structure_only_strict_correct": 22,
+    "structure_only_strict_accuracy": 0.44,
+    "end_to_end_value_correct": 30,
+    "end_to_end_value_accuracy": 0.6,
+    "end_to_end_strict_correct": 16,
+    "end_to_end_strict_accuracy": 0.32
+  },
+  "loss_attribution": {
+    "unit": "questions out of qa.questions, compared question by question under each co-primary rule; lost and gained are gross counts and net_correct_change = gained - lost",
+    "value": {
+      "wrong_on_gold_table": 10,
+      "gold_table_to_structure_only": {
+        "lost": 0,
+        "gained": 0,
+        "net_correct_change": 0,
+        "lost_by_status": {}
+      },
+      "structure_only_to_end_to_end": {
+        "lost": 10,
+        "gained": 0,
+        "net_correct_change": -10,
+        "lost_by_status": {
+          "detection_miss": 5,
+          "header_or_limit_invalid": 5
+        }
+      },
+      "gold_table_to_end_to_end": {
+        "lost": 10,
+        "gained": 0,
+        "net_correct_change": -10,
+        "lost_by_status": {
+          "detection_miss": 5,
+          "header_or_limit_invalid": 5
+        }
+      },
+      "net_correct_change_vs_gold": {
+        "structure_only": 0,
+        "end_to_end": -10
+      }
+    },
+    "strict": {
+      "wrong_on_gold_table": 28,
+      "gold_table_to_structure_only": {
+        "lost": 0,
+        "gained": 0,
+        "net_correct_change": 0,
+        "lost_by_status": {}
+      },
+      "structure_only_to_end_to_end": {
+        "lost": 6,
+        "gained": 0,
+        "net_correct_change": -6,
+        "lost_by_status": {
+          "detection_miss": 3,
+          "header_or_limit_invalid": 3
+        }
+      },
+      "gold_table_to_end_to_end": {
+        "lost": 6,
+        "gained": 0,
+        "net_correct_change": -6,
+        "lost_by_status": {
+          "detection_miss": 3,
+          "header_or_limit_invalid": 3
+        }
+      },
+      "net_correct_change_vs_gold": {
+        "structure_only": 0,
+        "end_to_end": -6
+      }
+    }
+  }
+}
+
+Per-question trace: 34 of 50 questions were not right on all three paths under both rules
+V = right under the value-equality rule, S = right under the strict-operator rule, - = wrong
+question                 operator gold/pred   gold  struct  e2e  transitions
+1702.02925v1.7-lookup-0  NONE/SUM             V-    V-      V-   value: right on every path | strict: wrong on the gold table
+1702.02925v1.7-lookup-1  NONE/SUM             V-    V-      V-   value: right on every path | strict: wrong on the gold table
+1702.02925v1.7-sum       SUM/SUM              --    --      --   value: wrong on the gold table | strict: wrong on the gold table
+1702.02925v1.7-avg       AVERAGE/AVERAGE      --    --      --   value: wrong on the gold table | strict: wrong on the gold table
+1605.06770v1.1-lookup-0  NONE/SUM             V-    V-      V-   value: right on every path | strict: wrong on the gold table
+1605.06770v1.1-lookup-1  NONE/SUM             V-    V-      V-   value: right on every path | strict: wrong on the gold table
+1605.06770v1.1-sum       SUM/SUM              --    --      --   value: wrong on the gold table | strict: wrong on the gold table
+1605.06770v1.1-avg       AVERAGE/AVERAGE      --    --      --   value: wrong on the gold table | strict: wrong on the gold table
+1606.09371v1.5-lookup-0  NONE/SUM             V-    V-      V-   value: right on every path | strict: wrong on the gold table
+1606.09371v1.5-lookup-1  NONE/SUM             V-    V-      V-   value: right on every path | strict: wrong on the gold table
+1407.3745v1.1-lookup-1   NONE/SUM             V-    V-      V-   value: right on every path | strict: wrong on the gold table
+1407.3745v1.1-sum        SUM/SUM              --    --      --   value: wrong on the gold table | strict: wrong on the gold table
+1702.02925v1.3-lookup-0  NONE/SUM             V-    V-      V-   value: right on every path | strict: wrong on the gold table
+1702.02925v1.3-lookup-1  NONE/SUM             V-    V-      V-   value: right on every path | strict: wrong on the gold table
+1702.02925v1.3-sum       SUM/SUM              --    --      --   value: wrong on the gold table | strict: wrong on the gold table
+1702.02925v1.3-avg       AVERAGE/AVERAGE      --    --      --   value: wrong on the gold table | strict: wrong on the gold table
+1108.4723v1.4-lookup-0   NONE/SUM             V-    V-      --   value: lost structure-only -> end-to-end (detection miss) | strict: wrong on the gold table
+1108.4723v1.4-lookup-1   NONE/SUM             V-    V-      --   value: lost structure-only -> end-to-end (detection miss) | strict: wrong on the gold table
+1108.4723v1.4-sum        SUM/SUM              VS    VS      --   value: lost structure-only -> end-to-end (detection miss) | strict: lost structure-only -> end-to-end (detection miss)
+1108.4723v1.4-avg        AVERAGE/AVERAGE      VS    VS      --   value: lost structure-only -> end-to-end (detection miss) | strict: lost structure-only -> end-to-end (detection miss)
+1108.4723v1.4-count      COUNT/COUNT          VS    VS      --   value: lost structure-only -> end-to-end (detection miss) | strict: lost structure-only -> end-to-end (detection miss)
+1611.09238v1.1-lookup-0  NONE/SUM             V-    V-      --   value: lost structure-only -> end-to-end (header_or_limit_invalid on the detected crop) | strict: wrong on the gold table
+1611.09238v1.1-lookup-1  NONE/SUM             V-    V-      --   value: lost structure-only -> end-to-end (header_or_limit_invalid on the detected crop) | strict: wrong on the gold table
+1611.09238v1.1-sum       SUM/SUM              VS    VS      --   value: lost structure-only -> end-to-end (header_or_limit_invalid on the detected crop) | strict: lost structure-only -> end-to-end (header_or_limit_invalid on the detected crop)
+1611.09238v1.1-avg       AVERAGE/AVERAGE      VS    VS      --   value: lost structure-only -> end-to-end (header_or_limit_invalid on the detected crop) | strict: lost structure-only -> end-to-end (header_or_limit_invalid on the detected crop)
+1611.09238v1.1-count     COUNT/COUNT          VS    VS      --   value: lost structure-only -> end-to-end (header_or_limit_invalid on the detected crop) | strict: lost structure-only -> end-to-end (header_or_limit_invalid on the detected crop)
+1108.4723v1.3-lookup-0   NONE/SUM             V-    V-      V-   value: right on every path | strict: wrong on the gold table
+1108.4723v1.3-lookup-1   NONE/SUM             V-    V-      V-   value: right on every path | strict: wrong on the gold table
+1702.02925v1.6-lookup-0  NONE/SUM             V-    V-      V-   value: right on every path | strict: wrong on the gold table
+1702.02925v1.6-lookup-1  NONE/SUM             V-    V-      V-   value: right on every path | strict: wrong on the gold table
+1702.02925v1.6-sum       SUM/SUM              --    --      --   value: wrong on the gold table | strict: wrong on the gold table
+1702.02925v1.6-avg       AVERAGE/AVERAGE      --    --      --   value: wrong on the gold table | strict: wrong on the gold table
+1606.09371v1.2-lookup-0  NONE/SUM             --    --      --   value: wrong on the gold table | strict: wrong on the gold table
+1606.09371v1.2-lookup-1  NONE/SUM             V-    V-      V-   value: right on every path | strict: wrong on the gold table
+[colab] Executing cell 25/30 - dimer-table-workshop-52...
+                                                                                
+ def stage_checkpoint(args):                                                    
+     for item in canonical_tables:                                              
+         print({                                                                
+             "table":item["source_id"],                                         
+             "detection_iou":next(r["best_iou"] for r in det_rows if            
+ r["table_id"]==item["source_id"]),                                             
+             "gold_crop_valid":item["gold_recon"]["valid"],                     
+             "detected_crop_valid":item["det_recon"]["valid"],                  
+             "gold_shape":[item["n_rows"],item["n_cols"]],                      
+             "gold_crop_pred_shape":[len(item["gold_grid_pred"]["rows"]),len(it 
+ em["gold_grid_pred"]["columns"])],                                             
+             "det_crop_pred_shape":[len(item["det_grid_pred"]["rows"]),len(item 
+ ["det_grid_pred"]["columns"])],                                                
+             "cell_accuracy_gold_crop":item["gold_recon"].get("assignment_accur 
+ acy"),                                                                         
+             "cell_accuracy_detected_crop":item["det_recon"].get("assignment_ac 
+ curacy"),                                                                      
+             "table_equals_gold_gold_crop":table_equals_gold(item["gold_recon"] 
+ .get("table"),item),                                                           
+             "table_equals_gold_detected_crop":table_equals_gold(item["det_reco 
+ n"].get("table"),item),                                                        
+         })                                                                     
+                                                                                
+{'table': '1702.02925v1.7', 'detection_iou': 0.8917366626625095, 'gold_crop_valid': True, 'detected_crop_valid': True, 'gold_shape': [10, 7], 'gold_crop_pred_shape': [10, 7], 'det_crop_pred_shape': [10, 7], 'cell_accuracy_gold_crop': 1.0, 'cell_accuracy_detected_crop': 1.0, 'table_equals_gold_gold_crop': True, 'table_equals_gold_detected_crop': True}
+{'table': '1605.06770v1.1', 'detection_iou': 0.8817291072271487, 'gold_crop_valid': True, 'detected_crop_valid': True, 'gold_shape': [8, 2], 'gold_crop_pred_shape': [8, 2], 'det_crop_pred_shape': [8, 2], 'cell_accuracy_gold_crop': 1.0, 'cell_accuracy_detected_crop': 1.0, 'table_equals_gold_gold_crop': True, 'table_equals_gold_detected_crop': True}
+{'table': '1606.09371v1.5', 'detection_iou': 0.8330993914356506, 'gold_crop_valid': True, 'detected_crop_valid': True, 'gold_shape': [5, 4], 'gold_crop_pred_shape': [5, 4], 'det_crop_pred_shape': [5, 4], 'cell_accuracy_gold_crop': 1.0, 'cell_accuracy_detected_crop': 1.0, 'table_equals_gold_gold_crop': True, 'table_equals_gold_detected_crop': True}
+{'table': '1407.3745v1.1', 'detection_iou': 0.8346099613787515, 'gold_crop_valid': True, 'detected_crop_valid': True, 'gold_shape': [4, 4], 'gold_crop_pred_shape': [4, 4], 'det_crop_pred_shape': [4, 4], 'cell_accuracy_gold_crop': 1.0, 'cell_accuracy_detected_crop': 1.0, 'table_equals_gold_gold_crop': True, 'table_equals_gold_detected_crop': True}
+{'table': '1702.02925v1.3', 'detection_iou': 0.9152485242041867, 'gold_crop_valid': True, 'detected_crop_valid': True, 'gold_shape': [14, 7], 'gold_crop_pred_shape': [14, 7], 'det_crop_pred_shape': [14, 7], 'cell_accuracy_gold_crop': 1.0, 'cell_accuracy_detected_crop': 1.0, 'table_equals_gold_gold_crop': True, 'table_equals_gold_detected_crop': True}
+{'table': '1108.4723v1.4', 'detection_iou': 0.0, 'gold_crop_valid': True, 'detected_crop_valid': False, 'gold_shape': [3, 4], 'gold_crop_pred_shape': [3, 4], 'det_crop_pred_shape': [0, 0], 'cell_accuracy_gold_crop': 1.0, 'cell_accuracy_detected_crop': None, 'table_equals_gold_gold_crop': True, 'table_equals_gold_detected_crop': False}
+{'table': '1611.09238v1.1', 'detection_iou': 0.8335369509231655, 'gold_crop_valid': True, 'detected_crop_valid': False, 'gold_shape': [4, 5], 'gold_crop_pred_shape': [4, 5], 'det_crop_pred_shape': [4, 6], 'cell_accuracy_gold_crop': 1.0, 'cell_accuracy_detected_crop': 0.8, 'table_equals_gold_gold_crop': True, 'table_equals_gold_detected_crop': False}
+{'table': '1108.4723v1.3', 'detection_iou': 0.8243800958499397, 'gold_crop_valid': True, 'detected_crop_valid': True, 'gold_shape': [4, 4], 'gold_crop_pred_shape': [4, 4], 'det_crop_pred_shape': [4, 4], 'cell_accuracy_gold_crop': 1.0, 'cell_accuracy_detected_crop': 1.0, 'table_equals_gold_gold_crop': True, 'table_equals_gold_detected_crop': True}
+{'table': '1702.02925v1.6', 'detection_iou': 0.8904508512756362, 'gold_crop_valid': True, 'detected_crop_valid': True, 'gold_shape': [10, 7], 'gold_crop_pred_shape': [10, 7], 'det_crop_pred_shape': [10, 7], 'cell_accuracy_gold_crop': 1.0, 'cell_accuracy_detected_crop': 1.0, 'table_equals_gold_gold_crop': True, 'table_equals_gold_detected_crop': True}
+{'table': '1606.09371v1.2', 'detection_iou': 0.8777737838582285, 'gold_crop_valid': True, 'detected_crop_valid': True, 'gold_shape': [7, 4], 'gold_crop_pred_shape': [7, 4], 'det_crop_pred_shape': [7, 4], 'cell_accuracy_gold_crop': 1.0, 'cell_accuracy_detected_crop': 1.0, 'table_equals_gold_gold_crop': True, 'table_equals_gold_detected_crop': True}
+[colab] Executing cell 26/30 - dimer-table-workshop-54...
+                                                                                
+ def median(x):return float(np.median(x)) if x else None                        
+                                                                                
+ def stage_resources(args):                                                     
+     global resource_rows                                                       
+     resource_rows=[                                                            
+         {                                                                      
+             "stage":"detection","model":"Table Transformer Detection",         
+             "model_id":DETECTION_MANIFEST["modelId"],"revision":DETECTION_MANI 
+ FEST["revision"],                                                              
+             "parameter_count":det_params,                                      
+             "weight_bytes":next(x["bytes"] for x in                            
+ DETECTION_MANIFEST["files"] if x["path"]=="model.safetensors"),                
+             "load_seconds":det_load_seconds,"latency_unit":"per                
+ page","mean_latency_seconds":float(np.mean(det_times)),                        
+             "median_latency_seconds":median(det_times),"peak_gpu_memory_bytes" 
+ :det_peak,                                                                     
+         },                                                                     
+         {                                                                      
+             "stage":"structure","model":"Table Transformer Structure",         
+             "model_id":STRUCTURE_MANIFEST["modelId"],"revision":STRUCTURE_MANI 
+ FEST["revision"],                                                              
+             "parameter_count":struct_params,                                   
+             "weight_bytes":next(x["bytes"] for x in                            
+ STRUCTURE_MANIFEST["files"] if x["path"]=="model.safetensors"),                
+             "load_seconds":struct_load_seconds,"latency_unit":"per             
+ crop","mean_latency_seconds":float(np.mean(struct_times)),                     
+             "median_latency_seconds":median(struct_times),"peak_gpu_memory_byt 
+ es":struct_peak,                                                               
+         },                                                                     
+         {                                                                      
+             "stage":"qa","model":"TAPAS Large WTQ",                            
+             "model_id":TAPAS_MANIFEST["modelId"],"revision":TAPAS_MANIFEST["re 
+ vision"],                                                                      
+             "parameter_count":tapas_params,                                    
+             "weight_bytes":next(x["bytes"] for x in TAPAS_MANIFEST["files"] if 
+ x["path"]=="model.safetensors"),                                               
+             "load_seconds":tapas_load_seconds,"latency_unit":"per question",   
+             "mean_latency_seconds":float(np.mean(gold_tapas_times+structure_ta 
+ pas_times+end_tapas_times)),                                                   
+             "median_latency_seconds":median(gold_tapas_times+structure_tapas_t 
+ imes+end_tapas_times),                                                         
+             "peak_gpu_memory_bytes":tapas_peak,                                
+         },                                                                     
+     ]                                                                          
+     for row in resource_rows:print(row)                                        
+                                                                                
+{'stage': 'detection', 'model': 'Table Transformer Detection', 'model_id': 'microsoft/table-transformer-detection', 'revision': '2357cbe2b5a5d1c03e54f32764f06058933b65ab', 'parameter_count': 28799431, 'weight_bytes': 115317516, 'load_seconds': 0.4272867220001899, 'latency_unit': 'per page', 'mean_latency_seconds': 0.05878301110001303, 'median_latency_seconds': 0.054772115499986285, 'peak_gpu_memory_bytes': 235753472}
+{'stage': 'structure', 'model': 'Table Transformer Structure', 'model_id': 'microsoft/table-transformer-structure-recognition-v1.1-all', 'revision': '7587a7ef111d9dcbf8ac695f1376ab7014340a0c', 'parameter_count': 28828619, 'weight_bytes': 115437156, 'load_seconds': 0.4035916380000799, 'latency_unit': 'per crop', 'mean_latency_seconds': 0.03733798226313698, 'median_latency_seconds': 0.033444574999975885, 'peak_gpu_memory_bytes': 216211968}
+{'stage': 'qa', 'model': 'TAPAS Large WTQ', 'model_id': 'google/tapas-large-finetuned-wtq', 'revision': 'f58317ab2577d17647d9acafa790c744a0388b30', 'parameter_count': 336734214, 'weight_bytes': 1346985282, 'load_seconds': 0.7502506320001885, 'latency_unit': 'per question', 'mean_latency_seconds': 0.12677962631429734, 'median_latency_seconds': 0.11979567850005424, 'peak_gpu_memory_bytes': 1404542464}
+[colab] Executing cell 27/30 - dimer-table-workshop-56...
+                                                                                
+ def draw_boxes(image,items):                                                   
+     out=image.convert("RGB").copy()                                            
+     d=ImageDraw.Draw(out)                                                      
+     for item in items:                                                         
+         # PIL draws no outline unless a colour is given.                       
+         d.rectangle(item["box"],outline=BOX_COLORS.get(item["label"],"orange") 
+ ,width=2)                                                                      
+         if item["label"]=="table":                                             
+             d.text((item["box"][0]+4,item["box"][1]-14),f"table                
+ {item.get('score',0):.2f}",fill="red")                                         
+     return out                                                                 
+                                                                                
+ def stage_panels(args):                                                        
+     examples_dir=Path(OUTPUT_DIR)/"examples"                                   
+     examples_dir.mkdir(parents=True,exist_ok=True)                             
+                                                                                
+     for item in canonical_tables:                                              
+         page=draw_boxes(item["page"],item["detections"][:3])                   
+         crop=item["det_crop"] if item["det_crop"] is not None else             
+ item["gold_crop"]                                                              
+         struct=item["det_structure_raw"] if item["det_crop"] is not None else  
+ item["gold_structure_raw"]                                                     
+         crop_vis=draw_boxes(crop,[x for x in struct if x["label"] in ("table   
+ row","table column","table spanning cell")])                                   
+         page.thumbnail((700,700)); crop_vis.thumbnail((700,700))               
+         recon=item["det_recon"] if item["det_crop"] is not None else           
+ item["gold_recon"]                                                             
+         recon_lines=[" | ".join(row) for row in (recon["table"] or [])[:3]] or 
+ [f"(no table: {recon['reason']})"]                                             
+         canvas=Image.new("RGB",(max(page.width,crop_vis.width),page.height+cro 
+ p_vis.height+120+30*len(recon_lines)),"white")                                 
+         canvas.paste(page,(0,0)); canvas.paste(crop_vis,(0,page.height))       
+         q=next(r for r in end_to_end_qa if r["table_id"]==item["source_id"])   
+         d=ImageDraw.Draw(canvas)                                               
+         y=page.height+crop_vis.height+8                                        
+         for line in recon_lines:                                               
+             d.text((5,y),f"Reconstructed: {line[:110]}",fill="black"); y+=30   
+         d.text((5,y),f"Q: {q['question']}",fill="black")                       
+         d.text((5,y+30),f"Gold: {q['gold_denotation']}",fill="black")          
+         d.text((5,y+60),f"Path status: {q['pipeline_status']}  TAPAS:          
+ {q['predicted_denotation']}  aggregation: {q['predicted_aggregation']}  cells: 
+ {q['selected_cells'][:4]}",fill="black")                                       
+         path=examples_dir/f"{item['source_id'].replace('/','_')}.png"          
+         canvas.save(path)                                                      
+         print(path)                                                            
+                                                                                
+outputs/table_intelligence/examples/1702.02925v1.7.png
+outputs/table_intelligence/examples/1605.06770v1.1.png
+outputs/table_intelligence/examples/1606.09371v1.5.png
+outputs/table_intelligence/examples/1407.3745v1.1.png
+outputs/table_intelligence/examples/1702.02925v1.3.png
+outputs/table_intelligence/examples/1108.4723v1.4.png
+outputs/table_intelligence/examples/1611.09238v1.1.png
+outputs/table_intelligence/examples/1108.4723v1.3.png
+outputs/table_intelligence/examples/1702.02925v1.6.png
+outputs/table_intelligence/examples/1606.09371v1.2.png
+[colab] Executing cell 28/30 - dimer-table-workshop-58...
+Outputs:
+  outputs/table_intelligence/complex_probe
+  outputs/table_intelligence/examples
+  outputs/table_intelligence/input_manifest.json
+  outputs/table_intelligence/provenance.json
+  outputs/table_intelligence/qa_predictions.csv
+  outputs/table_intelligence/qa_questions.jsonl
+  outputs/table_intelligence/reconstruction_metrics.csv
+  outputs/table_intelligence/resource_metrics.csv
+  outputs/table_intelligence/structure_metrics.csv
+  outputs/table_intelligence/table_detection.csv
+  outputs/table_intelligence/tables
+  outputs/table_intelligence/waterfall.json
+[colab] Executing cell 29/30 - dimer-table-workshop-60...
+                                                                                
+ def accepted_answer_matches(result,accepted):                                  
+     """Numbers compare within 1e-6 when both sides parse as numbers; anything  
+ else compares as normalized text."""                                           
+     predicted=result["numeric_answer"] if result["aggregation"]!="NONE" else   
+ ", ".join(result["cells"])                                                     
+     if predicted is None:                                                      
+         return False                                                           
+     p,a=parse_number(predicted),parse_number(accepted)                         
+     if p is not None and a is not None:                                        
+         return abs(p-a)<=1e-6                                                  
+     return norm_cell(predicted)==norm_cell(accepted)                           
+                                                                                
+ def read_byod_csv(path,required):                                              
+     """Rows with their file line numbers (line 1 is the header); names any     
+ missing column."""                                                             
+     with open(path,encoding="utf-8-sig",newline="") as f:                      
+         reader=csv.DictReader(f)                                               
+         lacking=sorted(required-set(reader.fieldnames or []))                  
+         if lacking:                                                            
+             raise ByodRefusal(f"{path.name}: missing column(s) {lacking};      
+ required columns are {sorted(required)}")                                      
+         return list(enumerate(reader,start=2))                                 
+                                                                                
+ def stage_byod(args):                                                          
+     global det_processor,det_model,struct_processor,struct_model,byod_result   
+     load_transformers()                                                        
+     load_pandas()                                                              
+     byod_result=None                                                           
+     if USE_BYOD:                                                               
+         # TBL2-m1 (DAT20): earlier BYOD outputs are removed before validation, 
+ so a refusal leaves none behind.                                               
+         byod_dir=Path(OUTPUT_DIR)/"byod"                                       
+         if byod_dir.exists():                                                  
+             shutil.rmtree(byod_dir)                                            
+         if not str(BYOD_PATH).strip():                                         
+             raise ByodRefusal("USE_BYOD is True but BYOD_PATH is empty: set    
+ BYOD_PATH in §3 to the folder that holds pages/ and ocr.csv")                  
+         root=Path(BYOD_PATH)                                                   
+         pages_dir=root/"pages"                                                 
+         ocr_path=root/"ocr.csv"                                                
+         questions_path=root/"questions.csv"                                    
+         absent=[name for name,ok in                                            
+ (("pages/",pages_dir.is_dir()),("ocr.csv",ocr_path.is_file())) if not ok]      
+         if absent:                                                             
+             raise ByodLayoutRefusal(f"BYOD_PATH {str(root)!r} is missing       
+ {absent}; use the layout shown in §28")                                        
+                                                                                
+         # Validate every row before any model runs; every refused row is       
+ collected and reported once (TBL2-m1).                                         
+         problems=[]                                                            
+         ocr_by_page=defaultdict(list)                                          
+         ocr_rows=read_byod_csv(ocr_path,{"page_id","text","x0","y0","x1","y1", 
+ "order"})                                                                      
+         for line,row in ocr_rows:                                              
+             page_id=str(row["page_id"] or "").strip()                          
+             if not page_id:                                                    
+                 problems.append(f"ocr.csv line {line}: page_id is empty")      
+                 continue                                                       
+             try:                                                               
+                 box=[float(row[k]) for k in ("x0","y0","x1","y1")]             
+             except (TypeError,ValueError):                                     
+                 problems.append(                                               
+                     f"ocr.csv line {line}: x0,y0,x1,y1 must be numbers in      
+ page-image pixels, got "                                                       
+                     f"{[row[k] for k in ('x0','y0','x1','y1')]}"               
+                 )                                                              
+                 continue                                                       
+             if not all(math.isfinite(v) for v in box) or box[0]>box[2] or      
+ box[1]>box[3]:                                                                 
+                 problems.append(f"ocr.csv line {line}: box {box} needs finite  
+ values with x0<=x1 and y0<=y1 (top-left origin)")                              
+                 continue                                                       
+             try:                                                               
+                 order=int(str(row["order"]).strip())                           
+             except ValueError:                                                 
+                 problems.append(f"ocr.csv line {line}: order must be a whole   
+ number, got {row['order']!r}")                                                 
+                 continue                                                       
+             ocr_by_page[page_id].append({"text":str(row["text"] or             
+ ""),"box":box,"order":order,"line":line})                                      
+         if not ocr_rows:                                                       
+             problems.append("ocr.csv has a header but no rows")                
+         for page_id in ocr_by_page:                                            
+             ocr_by_page[page_id].sort(key=lambda x:x["order"])                 
+                                                                                
+         q_by_page=defaultdict(list)                                            
+         if questions_path.is_file():                                           
+             for line,row in                                                    
+ read_byod_csv(questions_path,{"id","page_id","question"}):                     
+                 if not str(row["question"] or "").strip() or not               
+ str(row["page_id"] or "").strip():                                             
+                     problems.append(f"questions.csv line {line}: page_id and   
+ question must be non-empty")                                                   
+                     continue                                                   
+                 q_by_page[str(row["page_id"]).strip()].append(row)             
+         if problems:                                                           
+             byod_refuse(problems)                                              
+                                                                                
+         byod_skipped=[]                                                        
+         byod_inputs=[]                                                         
+         for image_path in sorted(pages_dir.iterdir()):                         
+             if not image_path.is_file():                                       
+                 continue                                                       
+             if image_path.suffix.lower() not in BYOD_IMAGE_SUFFIXES:           
+                 byod_skipped.append({"file":image_path.name,"reason":"unsuppor 
+ ted_extension"})                                                               
+             elif image_path.stem not in ocr_by_page:                           
+                 byod_skipped.append({"file":image_path.name,"reason":"no_ocr_r 
+ ows"})                                                                         
+             else:                                                              
+                 byod_inputs.append(image_path)                                 
+         ocr_without_image=sorted(set(ocr_by_page)-{p.stem for p in             
+ byod_inputs})                                                                  
+         if not byod_inputs:                                                    
+             raise ByodRefusal(                                                 
+                 f"No page in {pages_dir} has OCR rows. Skipped:                
+ {byod_skipped}. "                                                              
+                 f"ocr.csv page_ids: {sorted(ocr_by_page)[:10]}. A page_id must 
+ equal its image file name without the extension."                              
+             )                                                                  
+                                                                                
+         byod_images={}                                                         
+         for image_path in byod_inputs:                                         
+             image=Image.open(image_path); image.load();                        
+ image=image.convert("RGB")                                                     
+             if min(image.size)<16 or max(image.size)>4096:                     
+                 problems.append(f"{image_path.name}: page is                   
+ {image.width}x{image.height}; each side must be 16..4096 px")                  
+                 continue                                                       
+             outside=[w["line"] for w in ocr_by_page[image_path.stem]           
+                      if w["box"][0]<-1 or w["box"][1]<-1 or                    
+ w["box"][2]>image.width+1 or w["box"][3]>image.height+1]                       
+             if outside:                                                        
+                 problems.append(                                               
+                     f"ocr.csv lines {outside}: boxes for {image_path.stem}     
+ extend beyond its {image.width}x{image.height} image. "                        
+                     "Boxes must be page-image pixels with a top-left origin;   
+ convert PDF points or a bottom-left origin first"                              
+                 )                                                              
+                 continue                                                       
+             byod_images[image_path.stem]=image                                 
+         if problems:                                                           
+             byod_refuse(problems)                                              
+                                                                                
+         # Detection, then structure: loaded one at a time with the same        
+ loaders as the sample path.                                                    
+         det_processor,det_model=load_detection_model()                         
+         byod_pages=[]                                                          
+         for page_id,image in byod_images.items():                              
+             detections=detect_table(image)                                     
+             byod_pages.append({"page_id":page_id,"image":image,"detection":det 
+ ections[0] if detections else None})                                           
+         del det_model,det_processor                                            
+         gc.collect()                                                           
+         if torch.cuda.is_available():torch.cuda.empty_cache()                  
+                                                                                
+         struct_processor,struct_model=load_structure_model()                   
+         if any(q_by_page.values()) and "tapas_model" not in globals():         
+             load_tapas()                                                       
+         byod_outputs=[]                                                        
+         for page in byod_pages:                                                
+             record={"page_id":page["page_id"],"detection":page["detection"],"t 
+ able":None,"answers":[],                                                       
+                     "words":len(ocr_by_page[page["page_id"]]),"words_assigned" 
+ :0}                                                                            
+             if page["detection"] is None:                                      
+                 byod_outputs.append({**record,"status":"detection_miss"})      
+                 continue                                                       
+             crop,crop_box=padded_crop(page["image"],page["detection"]["box"])  
+             grid=grid_from_structure(recognize_structure(crop))                
+             if not grid["valid_geometry"] or not grid["rows"] or not           
+ grid["columns"]:                                                               
+                 byod_outputs.append({**record,"status":"grid_invalid"})        
+                 continue                                                       
+                                                                                
+             # Assign OCR word centers into predicted row/column cells (crop    
+ frame = page frame - crop origin).                                             
+             strings=[[[] for _ in grid["columns"]] for __ in grid["rows"]]     
+             cx0,cy0,_,_=crop_box                                               
+             for word in ocr_by_page[page["page_id"]]:                          
+                 x=(word["box"][0]+word["box"][2])/2-cx0                        
+                 y=(word["box"][1]+word["box"][3])/2-cy0                        
+                 ris=[i for i,r in enumerate(grid["rows"]) if                   
+ contains(r["box"],x,y)]                                                        
+                 cis=[i for i,c in enumerate(grid["columns"]) if                
+ contains(c["box"],x,y)]                                                        
+                 if len(ris)==1 and len(cis)==1:                                
+                     strings[ris[0]][cis[0]].append((word["order"],word["text"] 
+ ))                                                                             
+                     record["words_assigned"]+=1                                
+             table=[[" ".join(t for _o,t in sorted(cell)).strip() for cell in   
+ row] for row in strings]                                                       
+             record["table"]=table                                              
+             headers=[norm_text(x) for x in table[0]] if table else []          
+             valid=bool(table and all(headers) and                              
+ len(set(headers))==len(headers) and len(table)<=64 and len(table[0])<=32)      
+             if not valid:                                                      
+                 byod_outputs.append({**record,"status":"header_or_limit_invali 
+ d"})                                                                           
+                 continue                                                       
+             for q in q_by_page.get(page["page_id"],[]):                        
+                 result=tapas_answer(table,q["question"])                       
+                 row={"id":q["id"],"question":q["question"],"answer":result["an 
+ swer"],"aggregation":result["aggregation"],                                    
+                      "cells":result["cells"],"numeric_answer":result["numeric_ 
+ answer"]}                                                                      
+                 accepted=(q.get("accepted_answer") or "").strip()              
+                 if accepted:                                                   
+                     row["accepted_answer"]=accepted                            
+                     row["accepted_answer_match"]=accepted_answer_matches(resul 
+ t,accepted)                                                                    
+                 record["answers"].append(row)                                  
+             byod_outputs.append({**record,"status":"ok"})                      
+         del struct_model,struct_processor                                      
+         gc.collect()                                                           
+         if torch.cuda.is_available():torch.cuda.empty_cache()                  
+                                                                                
+         # Show and export this run's BYOD results; earlier BYOD outputs are    
+ removed first.                                                                 
+         byod_dir=Path(OUTPUT_DIR)/"byod"                                       
+         if byod_dir.exists():                                                  
+             shutil.rmtree(byod_dir)                                            
+         (byod_dir/"tables").mkdir(parents=True)                                
+         for out in byod_outputs:                                               
+             print(f"\n[{out['page_id']}] status={out['status']}  OCR words     
+ assigned to cells: {out['words_assigned']}/{out['words']}")                    
+             if out["table"] is not None:                                       
+                 with                                                           
+ open(byod_dir/"tables"/f"{out['page_id']}.csv","w",encoding="utf-8",newline="" 
+ ) as f:                                                                        
+                     csv.writer(f).writerows(out["table"])                      
+                 header=out["table"][0]                                         
+                 columns=header if len(set(header))==len(header) else           
+ [f"{i}:{h}" for i,h in enumerate(header)]                                      
+                 print(pd.DataFrame(out["table"][1:],columns=columns).to_string 
+ (index=False))                                                                 
+             for a in out["answers"]:                                           
+                 verdict=f"  (accepted {a['accepted_answer']!r}: {'match' if    
+ a['accepted_answer_match'] else 'no match'})" if "accepted_answer" in a else   
+ ""                                                                             
+                 print(f"  Q {a['id']}: {a['question']}\n    ->                 
+ {a['answer']}{verdict}")                                                       
+         byod_result={                                                          
+             "byod_path":str(root),"pages":len(byod_outputs),"skipped":byod_ski 
+ pped,                                                                          
+             "ocr_page_ids_without_image":ocr_without_image,                    
+             "thresholds":{"detection":DETECTION_THRESHOLD,"structure":STRUCTUR 
+ E_THRESHOLD,"grid_nms_iou":GRID_NMS_IOU},                                      
+             "outputs":byod_outputs,                                            
+         }                                                                      
+         (byod_dir/"byod_results.json").write_text(json.dumps(byod_result,inden 
+ t=2,ensure_ascii=False,default=str),encoding="utf-8")                          
+         print({"byod_pages":len(byod_outputs),"status_counts":dict(Counter(x[" 
+ status"] for x in byod_outputs)),                                              
+                "skipped":byod_skipped,"outputs":str(byod_dir)})                
+     else:                                                                      
+         print("BYOD disabled on canonical Run all path.")                      
+                                                                                
+BYOD disabled on canonical Run all path.
+[colab] Executing cell 30/30 - dimer-table-workshop-66...
+DIMER Notebook: Table Intelligence
+----------------------------------
+Canonical tables: 10
+Questions: 50
+
+Stage 1 — Detection
+  AP50: 0.900
+  hit@0.50: 0.900
+  mean IoU (a page with no detection counts as 0): 0.778
+  mean IoU over the 9 detected pages: 0.865
+
+Stage 2 — Structure
+  gold-crop exact grid shapes: 10 / 10
+  detected-crop exact grid shapes (a detection miss is not exact): 8 / 10
+
+Stage 3 — Reconstruction
+  valid gold-crop tables: 10 / 10
+  valid detected tables: 8 / 10
+
+Stage 4 — TAPAS (two co-primary scoring rules, side by side)
+  path               value-equality  strict-operator
+  gold table         40/50 (0.800)   22/50 (0.440)
+  structure-only     40/50 (0.800)   22/50 (0.440)
+  end-to-end         30/50 (0.600)   16/50 (0.320)
+  value rule: wrong on the gold table (the reference path) 10; gold -> structure-only lost 0, gained 0, net +0; structure-only -> end-to-end lost 10, gained 0, net -10
+  strict rule: wrong on the gold table (the reference path) 28; gold -> structure-only lost 0, gained 0, net +0; structure-only -> end-to-end lost 6, gained 0, net -6
+  (loss_attribution in waterfall.json)
+
+Outputs: outputs/table_intelligence/
+[colab] Saving notebook with outputs to '<local-run-dir>/DIMER_Table_Intelligence_Workshop_a87f509_colab-cli-t4_output.ipynb'...

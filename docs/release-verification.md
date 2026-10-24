@@ -245,14 +245,66 @@ Local CPU run on 2026-10-15 (real pinned models and data; not hosted evidence), 
 The gap comes from lookups: TAPAS answered 19 of the 20 gold-table lookups with `SUM` over the selected cells. Lookup accuracy is 19/20 under the value rule and 1/20 under the strict rule; every aggregation question right by value also used the gold operator. Under the strict rule, structure-only → end-to-end lost 6 and gained 0, and gold → structure-only lost 0 and gained 0.
 
 
-### Pending (REL14): blob `fb63c43e` — 2026-10-24
+### Stage state without pickle: blob `fb63c43e` — 2026-10-24 (current blob)
 
 The workshop notebook was regenerated from code commit `f946faa` (blob `a9b4f0f7` → `fb63c43e`). The
 carried stage file now saves the state passed between stage processes as `state.json` (plain JSON), PNG files and
 `arrays.npz` (`allow_pickle=False`), each checked against the SHA-256 recorded in `state.json` before it is read,
 instead of a pickled `state.pkl` (ARTIFACT_SPEC 2.0 SER7). Every stage restores that state, so the default path
-exercises the change. The runs recorded below are of earlier blobs and are history for those blobs only. A hosted
-run of `fb63c43e` is pending. Status stays **Candidate**.
+exercises the change. A hosted run of `fb63c43e` (commit `a87f509`) on 2026-10-24 covers the default path; it is recorded
+in the next section. The runs of earlier blobs recorded after it are history for those blobs only (REL14). Status stays
+**Candidate**; the remaining gates are REL12 (BYOD with one accepted folder and one refused input) and REL2 (a browser
+`Run all`, including the threshold-activity rerun after it).
+
+### Colab CLI execution of blob `fb63c43e` — 2026-10-24
+
+- **Evidence.** `execution-evidence/2026-10-24-a87f509/`: the executed notebook (renamed without `_output`, run label
+  `workshop` added), `exec.log` and `run_summary.json`, copied from the run directory and redacted byte-wise (local run
+  paths replaced by `<local-run-dir>`; no JSON re-serialised). Captured → committed SHA-256:
+
+| File (under `docs/execution-evidence/2026-10-24-a87f509/`) | Captured SHA-256 | Committed SHA-256 |
+|---|---|---|
+| `DIMER_Table_Intelligence_Workshop_a87f509_colab-cli-t4_workshop.ipynb` | `9cd993a1a3b15e696cb3d6de0cb3745690290d0c6b3f6885791941c2aa9ef364` | `9cd993a1a3b15e696cb3d6de0cb3745690290d0c6b3f6885791941c2aa9ef364` (unchanged, no local path) |
+| `exec.log` | `38c0fbf776fd7661845a6dbf8367c8d99a6ebf0733ec187d929d718062dd3c45` | `99479a3e740e20393310e636411c1b6512e2fa350a60e7d0b9601d9e817a4d62` (2 local-path replacements) |
+| `run_summary.json` | `7ca45a6354171fb9f137696a085faab1e95514ad3bd1a6346ca53045cbfb7bf3` | `7ca45a6354171fb9f137696a085faab1e95514ad3bd1a6346ca53045cbfb7bf3` (unchanged, no local path) |
+
+  The executed notebook's captured hash equals `run_summary.json` `executed_sha256`.
+- **Revision.** PR #13 head `a87f509612bbd9eb9c9fab4a09af2b7e939ef02d`, notebook blob `fb63c43e25734e5a57d130921bee7c3a2d92503b`
+  (regenerated from `f946faa`: the stage state travels as `state.json`, PNG and `arrays.npz`, not a pickle), fetched at the
+  commit and blob-verified before the session; the input was unchanged by the run.
+- **Executor.** Colab CLI `colab exec -f` on a fresh Colab Tesla T4 session, started 2026-10-24 10:55:31 UTC. Code cells
+  ran in order in one kernel; the `Executing cell k/N` log reads 1/30 … 30/30. This is CLI sequential execution, not a
+  browser Run all.
+- **Path exercised.** Default path only: 10 canonical tables, 50 questions. Forms and uploads were not exercised; the
+  threshold activity ran once inside the run, its rerun after `Run all` was not run, and BYOD was not run
+  (`BYOD disabled on canonical Run all path.`).
+- **Environment.** Carried stage file and hash lock verified (`['requirements.lock.txt', 'table_intelligence_workshop.py']`);
+  isolated CPython 3.12.12 venv at `/content/work/env`, `lock_pins_checked` 66, `torch 2.14.0+cu130`, `transformers 4.57.6`,
+  `timm 1.0.30`, `datasets 4.1.1`, `numpy 2.5.3`, `pandas 2.2.3`, `cuda:0` Tesla T4. No restart.
+- **Outcome.** **PASSED** — 30/30 code cells, 0 errors; 210.9 s wall. Every stage after the first restored the carried
+  state, so the default path exercised the JSON / PNG / npz state hand-off.
+- **Results.** Same 10 canonical tables in the same order; split 21 / 23 / 50 tables. Detection AP50 0.900, hit@0.50
+  0.900 (9/10 pages detected; `1108.4723v1.4` missed, best rejected box score 0.745, IoU 0.7161), mean IoU 0.778 (0.865
+  over the 9 detected pages); exact grids 10/10 gold-crop and 8/10 detected-crop; valid reconstructions 10/10 and 8/10.
+  Threshold activity on validation: exact grids 23/23 at 0.50, 20/23 at 0.95, 3 tables changed. TAPAS, both co-primary
+  rules:
+
+| Path | Value-equality | Strict-operator |
+|---|---|---|
+| Gold table | 40 / 50 | 22 / 50 |
+| Structure-only | 40 / 50 | 22 / 50 |
+| End-to-end | 30 / 50 | 16 / 50 |
+
+  Value rule: 10 wrong on the gold table; gold → structure-only lost 0, gained 0; structure-only → end-to-end lost 10
+  (5 `detection_miss`, 5 `header_or_limit_invalid`), gained 0. Strict rule: 28 wrong on the gold table; structure-only →
+  end-to-end lost 6, gained 0. The per-question trace printed 34 of 50 questions not right on all three paths under both
+  rules. By operator on the gold table: lookups value 19/20, strict 1/20; SUM 5/10, AVERAGE 6/10, COUNT 10/10 under both
+  rules.
+- **Comparison.** Detection, grid and reconstruction counts, the threshold activity and both QA rules' counts are equal to
+  the 2026-10-15 run of blob `a9b4f0f7`. The change carries state between stages; it is not expected to change any
+  number, and none changed.
+- **Boundary.** Still open: a browser `Run all` with the threshold-activity rerun after it (REL2), and BYOD with one
+  accepted folder and one refused input (REL12). Status remains **Candidate**.
 
 ### Colab CLI execution of revision 0.4.0-candidate — 2026-10-15
 
@@ -278,5 +330,6 @@ run of `fb63c43e` is pending. Status stays **Candidate**.
 
 | Date (UTC) | Commit / notebook blob | Executor | Path exercised | Wall | Outcome |
 |---|---|---|---|---|---|
+| 2026-10-24 | `a87f509` / `fb63c43e` | Colab CLI `colab exec -f`, fresh Colab Tesla T4 | Default path, CLI sequential execution (not a browser Run all); forms/uploads not exercised | 210.9 s | **PASSED** — 30/30 code cells, 0 errors; QA value 40 / 40 / 30, strict 22 / 22 / 16; Candidate |
 | 2026-10-15 | `ec511d4` / `a9b4f0f7` | Colab CLI 0.7.4, fresh Colab Tesla T4 | Default path, CLI sequential execution (not a browser Run all); forms/uploads not exercised | 207.1 s | **PASSED** — 30/30 code cells, 0 errors; QA value 40 / 40 / 30, strict 22 / 22 / 16; Candidate |
 | 2026-10-03 | `4e19c6e` / `179d8620` | Colab CLI 0.7.4, fresh Colab Tesla T4 | Default path, CLI sequential execution (not a browser Run all) | 226.0 s | **PASSED** — 30/30 code cells, 0 errors; QA 40 / 40 / 30 (old lookup rule); Candidate |
