@@ -12,7 +12,9 @@ except where noted:
   ``STRUCTURE_THRESHOLD``) are resolved when the function is called, because the controls arrive
   after import;
 * objects that lived in the kernel between cells (tables, pages, crops, predictions, timings) are
-  pickled to ``WORK_ROOT/state/state.pkl`` after each stage and restored by the next one;
+  saved to ``WORK_ROOT/state/`` after each stage and restored by the next one, never as a pickle:
+  ``state.json`` (plain JSON with tags for tuples, sets, paths and shared objects), images as PNG
+  files and arrays in ``arrays.npz`` (``allow_pickle=False``), each checked against its SHA-256;
 * each stage process unloads the model it loaded; the former section 21 statements that loaded
   TAPAS are ``load_tapas()``, used by the QA and BYOD stages;
 * the SciTSR-PD source-table count is kept as ``SOURCE_TABLES`` (the ``datasets`` object is not
@@ -22,6 +24,7 @@ except where noted:
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import gc
 import hashlib
@@ -29,7 +32,6 @@ import io
 import json
 import math
 import os
-import pickle
 import random
 import re
 import shutil
@@ -121,9 +123,11 @@ def load_hub():
 
 
 # ---- State carried between stage processes ---------------------------------------------------------
-# Names a later stage reads. They are pickled together, so tables shared between `derived`, `splits` and
-# `canonical_tables` stay one object, as they were in the kernel. The file is written and read only by
-# this file, under WORK_ROOT.
+# Names a later stage reads. They are saved together, so tables shared between `derived`, `splits` and
+# `canonical_tables` stay one object, as they were in the kernel. The files are written and read only by
+# this file, under WORK_ROOT. No pickle (ARTIFACT_SPEC 2.0 SER7): `state.json` is plain JSON, images are
+# PNG files named by their pixel digest, arrays are in `arrays.npz` (allow_pickle=False), and the SHA-256
+# of every image and array file is recorded in `state.json` and checked before the file is read.
 STATE_NAMES = (
     "RUNTIME", "scitsr_paths", "SOURCE_TABLES", "derived", "failed", "splits", "canonical_tables",
     "det_load_seconds", "det_params", "det_times", "det_peak", "det_rows", "det_metrics",
@@ -132,25 +136,220 @@ STATE_NAMES = (
     "gold_qa", "structure_qa", "end_to_end_qa", "gold_tapas_times", "structure_tapas_times",
     "end_tapas_times", "tapas_peak", "waterfall", "resource_rows", "byod_result",
 )
+STATE_FORMAT = "dimer.table-intelligence-workshop.state.v2"
+STATE_IMAGE_MODES = ("1", "L", "LA", "RGB", "RGBA")  # modes a PNG file holds exactly
+_DEFAULT_FACTORIES = {"list": list, "dict": dict, "int": int, "float": float, "set": set, "str": str}
 
 
 def state_file():
-    return WORK_ROOT/"state"/"state.pkl"
+    return WORK_ROOT/"state"/"state.json"
+
+
+def _pixel_key(image):
+    return hashlib.sha256(f"{image.mode}:{image.width}x{image.height}:".encode()+image.tobytes()).hexdigest()
+
+
+class _StateEncoder:
+    """Plain-data encoding of the carried state; anything else is refused, never pickled."""
+
+    def __init__(self, root):
+        self.root = root
+        self.counts = Counter()
+        self.shared = {}
+        self.images = {}
+        self.arrays = {}
+
+    def count(self, value):
+        """Count references to each container, image and array, so shared objects are saved once."""
+        if isinstance(value, (dict, list, Image.Image, np.ndarray)):
+            self.counts[id(value)] += 1
+            if self.counts[id(value)] > 1:
+                return
+        if isinstance(value, dict):
+            for k, v in value.items():
+                self.count(k)
+                self.count(v)
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            for v in value:
+                self.count(v)
+
+    def encode(self, value, where):
+        if value is None or isinstance(value, (bool, str)) or type(value) is int:
+            return value
+        if type(value) is float:
+            return value if math.isfinite(value) else {"__float__": repr(value)}
+        if isinstance(value, (dict, list, Image.Image, np.ndarray)) and self.counts[id(value)] > 1:
+            if id(value) in self.shared:
+                return {"__ref__": self.shared[id(value)]}
+            self.shared[id(value)] = ref = len(self.shared)
+            return {"__shared__": ref, "value": self._encode_object(value, where)}
+        return self._encode_object(value, where)
+
+    def _items(self, value, where):
+        return [[self.encode(k, where), self.encode(v, f"{where}[{k!r}]")] for k, v in value.items()]
+
+    def _encode_object(self, value, where):
+        if type(value) is dict:
+            if all(type(k) is str and not k.startswith("__") for k in value):
+                return {k: self.encode(v, f"{where}.{k}") for k, v in value.items()}
+            return {"__dict__": self._items(value, where)}
+        if type(value) is Counter:
+            return {"__counter__": self._items(value, where)}
+        if type(value) is defaultdict:
+            factory = getattr(value.default_factory, "__name__", None)
+            if _DEFAULT_FACTORIES.get(factory) is not value.default_factory:
+                raise TypeError(f"state {where}: defaultdict factory {value.default_factory!r} cannot be saved without pickle")
+            return {"__defaultdict__": factory, "items": self._items(value, where)}
+        if type(value) is list:
+            return [self.encode(v, f"{where}[{i}]") for i, v in enumerate(value)]
+        if type(value) is tuple:
+            return {"__tuple__": [self.encode(v, f"{where}[{i}]") for i, v in enumerate(value)]}
+        if type(value) in (set, frozenset):
+            return {f"__{type(value).__name__}__": [self.encode(v, where) for v in value]}
+        if isinstance(value, Path):
+            return {"__path__": str(value)}
+        if type(value) is bytes:
+            return {"__bytes__": base64.b64encode(value).decode("ascii")}
+        if type(value) is datetime:
+            return {"__datetime__": value.isoformat()}
+        if isinstance(value, Image.Image):
+            return {"__image__": self._save_image(value, where)}
+        if isinstance(value, (np.ndarray, np.generic)):
+            array = np.asarray(value)
+            if array.dtype.hasobject:
+                raise TypeError(f"state {where}: object arrays cannot be saved without pickle")
+            key = f"a{len(self.arrays)}"
+            self.arrays[key] = array
+            return {"__ndarray__" if isinstance(value, np.ndarray) else "__npscalar__": key}
+        raise TypeError(f"state {where}: {type(value).__module__}.{type(value).__name__} cannot be saved without pickle")
+
+    def _save_image(self, image, where):
+        if image.mode not in STATE_IMAGE_MODES:
+            raise TypeError(f"state {where}: image mode {image.mode!r} is not one a PNG file holds exactly")
+        key = _pixel_key(image)
+        path = self.root/"images"/f"{key}.png"
+        if not path.is_file():  # content-addressed: an unchanged image is written once per run
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            image.save(tmp, format="PNG", compress_level=1)
+            with Image.open(tmp) as check:
+                check.load()
+                if _pixel_key(check) != key:
+                    raise RuntimeError(f"state {where}: the PNG round trip changed the pixels")
+            os.replace(tmp, path)
+        self.images[key] = sha256_file(path)
+        return key
+
+
+class _StateDecoder:
+    def __init__(self, root, manifest):
+        self.root = root
+        self.manifest = manifest
+        self.shared = {}
+        self.arrays = None
+
+    def _array(self, key):
+        if self.arrays is None:
+            path = self.root/"arrays.npz"
+            if sha256_file(path) != self.manifest["arrays_sha256"]:  # checked before the file is read
+                raise RuntimeError("state arrays.npz does not match the digest recorded in state.json")
+            with np.load(path, allow_pickle=False) as data:
+                self.arrays = {k: data[k] for k in data.files}
+        return self.arrays[key]
+
+    def _image(self, key):
+        path = self.root/"images"/f"{key}.png"
+        if sha256_file(path) != self.manifest["images"][key]:  # checked before the file is opened
+            raise RuntimeError(f"state image {key} does not match the digest recorded in state.json")
+        with Image.open(path) as image:
+            image.load()
+            out = image.copy()
+        if _pixel_key(out) != key:
+            raise RuntimeError(f"state image {key}: pixels differ from its name")
+        return out
+
+    def decode(self, value):
+        if isinstance(value, list):
+            return [self.decode(v) for v in value]
+        if not isinstance(value, dict):
+            return value
+        if "__shared__" in value:
+            ref, inner = value["__shared__"], value["value"]
+            if isinstance(inner, list):  # create first, so a reference inside finds the same object
+                self.shared[ref] = out = []
+                out.extend(self.decode(v) for v in inner)
+                return out
+            if isinstance(inner, dict) and not any(k.startswith("__") for k in inner):
+                self.shared[ref] = out = {}
+                out.update((k, self.decode(v)) for k, v in inner.items())
+                return out
+            self.shared[ref] = out = self.decode(inner)
+            return out
+        if "__ref__" in value:
+            return self.shared[value["__ref__"]]
+        tags = [k for k in value if k.startswith("__")]
+        if not tags:
+            return {k: self.decode(v) for k, v in value.items()}
+        tag = tags[0]
+        if tag == "__float__":
+            return float(value[tag])
+        if tag == "__dict__":
+            return {self.decode(k): self.decode(v) for k, v in value[tag]}
+        if tag == "__counter__":
+            return Counter({self.decode(k): self.decode(v) for k, v in value[tag]})
+        if tag == "__defaultdict__":
+            out = defaultdict(_DEFAULT_FACTORIES[value[tag]])
+            out.update((self.decode(k), self.decode(v)) for k, v in value["items"])
+            return out
+        if tag == "__tuple__":
+            return tuple(self.decode(v) for v in value[tag])
+        if tag == "__set__":
+            return {self.decode(v) for v in value[tag]}
+        if tag == "__frozenset__":
+            return frozenset(self.decode(v) for v in value[tag])
+        if tag == "__path__":
+            return Path(value[tag])
+        if tag == "__bytes__":
+            return base64.b64decode(value[tag])
+        if tag == "__datetime__":
+            return datetime.fromisoformat(value[tag])
+        if tag == "__image__":
+            return self._image(value[tag])
+        if tag == "__ndarray__":
+            return self._array(value[tag])
+        if tag == "__npscalar__":
+            return self._array(value[tag])[()]
+        raise ValueError(f"unknown state tag {tag!r}")
 
 
 def restore_state():
     path=state_file()
     if path.is_file():
-        with open(path,"rb") as f:
-            globals().update(pickle.load(f))
+        manifest=json.loads(path.read_text(encoding="utf-8"))
+        if manifest.get("format")!=STATE_FORMAT:
+            raise RuntimeError(f"{path} is not a {STATE_FORMAT} state file")
+        globals().update(_StateDecoder(path.parent,manifest).decode(manifest["names"]))
 
 
 def persist_state():
     path=state_file()
-    path.parent.mkdir(parents=True,exist_ok=True)
+    root=path.parent
+    root.mkdir(parents=True,exist_ok=True)
+    names={name:globals()[name] for name in STATE_NAMES if name in globals()}
+    encoder=_StateEncoder(root)
+    encoder.count(names)
+    encoded={name:encoder.encode(value,name) for name,value in names.items()}
+    manifest={"format":STATE_FORMAT,"names":encoded,"images":encoder.images,"arrays_sha256":None}
+    arrays=root/"arrays.npz"
+    if encoder.arrays:
+        tmp=root/"arrays.tmp.npz"
+        np.savez(tmp,**encoder.arrays)  # object arrays were refused above
+        os.replace(tmp,arrays)
+        manifest["arrays_sha256"]=sha256_file(arrays)
+    elif arrays.is_file():
+        arrays.unlink()
     tmp=path.with_suffix(".tmp")
-    with open(tmp,"wb") as f:
-        pickle.dump({name:globals()[name] for name in STATE_NAMES if name in globals()},f,protocol=pickle.HIGHEST_PROTOCOL)
+    tmp.write_text(json.dumps(manifest,allow_nan=False),encoding="utf-8")
     os.replace(tmp,path)
 
 

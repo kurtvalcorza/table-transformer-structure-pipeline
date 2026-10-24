@@ -9,7 +9,6 @@ with that venv's interpreter.
 import ast
 import hashlib
 import json
-import pickle
 import re
 import subprocess
 import sys
@@ -241,9 +240,9 @@ def test_state_written_by_one_stage_process_is_read_by_the_next(tmp_path):
     result = subprocess.run([sys.executable, str(STAGE_FILE), "--config", str(_config(tmp_path)), "--stage", "waterfall"],
                             capture_output=True, text=True, cwd=tmp_path)
     assert result.returncode == 0, result.stderr
-    with open(tmp_path / "work" / "state" / "state.pkl", "rb") as f:
-        state = pickle.load(f)
-    waterfall = state["waterfall"]
+    reader = load_stages(tmp_path)
+    reader["restore_state"]()  # the JSON state the waterfall process wrote (no pickle)
+    waterfall = reader["waterfall"]
     assert waterfall["detection"]["hit50"] == 9
     assert waterfall["structure_detected_crop"]["grid_exact"] == 8
     assert waterfall["reconstruction"]["valid_detected_crop"] == 9
@@ -273,7 +272,7 @@ def test_environment_stage_starts_a_fresh_state(tmp_path):
     ns["stage_environment"] = lambda args: calls.append(1)
     ns["stage"]("environment-test", fresh=True)(lambda args: calls.append(ns.get("canonical_tables")))(None)
     ns["STAGES"]["environment-test"](None)
-    assert not (tmp_path / "work" / "state" / "state.pkl").read_bytes().count(b"stale")
+    assert not (tmp_path / "work" / "state" / "state.json").read_bytes().count(b"stale")
 
 
 def test_markdown_and_metadata_state_the_platform_and_no_restart():
