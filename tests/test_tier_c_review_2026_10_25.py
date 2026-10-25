@@ -40,3 +40,15 @@ def test_t100_5_spec_items():
     assert "Notice.** For research, training and evaluation only." in head
     md = _markdown()
     assert "[1] B. Smock" in md and "`DIMER_ISOLATED_ENV`" in md
+
+
+def test_prose_holds_across_both_recorded_colab_t4_runs():
+    # Tier C prose-mismatch fix (2026-10-25): T4-attributed numbers are T4 values;
+    # CPU pre-flight values stay labelled.
+    md = " ".join(_markdown().split())
+    for gone in ("by a wide margin (0.295 vs 0.771)", "neither was re-run for this revision"):
+        assert gone not in md, gone
+    for quoted in ("(0.279 vs 0.771 in both Colab T4 runs; 0.295 in the CPU pre-flight)",
+                   "0.2762 → 0.3028 → 0.2842", "the first unfreeze epoch (`best_epoch` 2) was kept",
+                   "blob `629e15bc`", "412.8 s for blob `629e15bc`"):
+        assert quoted in md, quoted
