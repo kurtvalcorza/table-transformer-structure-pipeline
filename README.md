@@ -65,7 +65,7 @@ weights/table-transformer-structure-v1.1-all/
 
 ## Release status
 
-**Candidate** — The 2026-09-19 Kaggle T4 run of `4c56fa0` / blob `4686cf7d` needed a manual restart after the install cell, so it is not a one-pass `Run all` and not promotion evidence. The 2026-10-05 review-fix blob `dea5747fafbe` (commit `c88210b`) completed one pass with no restart and 0 errors on a fresh Colab Tesla T4 on 2026-10-09 (Colab CLI sequential execution, 14/14 code cells, 448.0 s; isolated `uv` environment, 47 locked packages; test mAP@0.5 checkpoint 0.8873 / frozen 0.8630 / selected 0.8728, mAP 0.6352 / 0.7197 / 0.7255; reload parity exact); the REL12 BYOD journeys are not exercised yet. The record is in `docs/release-verification.md` and `STATUS.md`.
+**Candidate** — the current tier C blob `629e15bc7232` (commit `d9a12fa`) completed one pass with no restart and 0 errors on a fresh Colab Tesla T4 on 2026-10-25 (Colab CLI, 14/14 code cells, 412.8 s; test mAP@0.5 0.8873 / 0.863 / 0.8728, the same as before); remaining gates REL12 (hosted BYOD) and REL2 (browser Run all). History: the 2026-09-19 Kaggle T4 run of `4c56fa0` / blob `4686cf7d` needed a manual restart after the install cell, so it is not a one-pass `Run all` and not promotion evidence. The 2026-10-05 review-fix blob `dea5747fafbe` (commit `c88210b`) completed one pass with no restart and 0 errors on a fresh Colab Tesla T4 on 2026-10-09 (Colab CLI sequential execution, 14/14 code cells, 448.0 s; isolated `uv` environment, 47 locked packages; test mAP@0.5 checkpoint 0.8873 / frozen 0.8630 / selected 0.8728, mAP 0.6352 / 0.7197 / 0.7255; reload parity exact); the REL12 BYOD journeys are not exercised yet. The record is in `docs/release-verification.md` and `STATUS.md`.
 
 ## Documentation
 
