@@ -48,7 +48,19 @@ def test_prose_holds_across_both_recorded_colab_t4_runs():
     md = " ".join(_markdown().split())
     for gone in ("by a wide margin (0.295 vs 0.771)", "neither was re-run for this revision"):
         assert gone not in md, gone
-    for quoted in ("(0.279 vs 0.771 in both Colab T4 runs; 0.295 in the CPU pre-flight)",
+    for quoted in ("(0.279 vs 0.771 in the three Colab T4 runs; 0.295 in the CPU pre-flight)",
                    "0.2762 → 0.3028 → 0.2842", "the first unfreeze epoch (`best_epoch` 2) was kept",
                    "blob `629e15bc`", "412.8 s for blob `629e15bc`"):
+        assert quoted in md, quoted
+
+
+def test_historical_wording_records_every_hosted_run():
+    # Historical wording (2026-10-26): timings are records of every named hosted run, never a span to land in;
+    # the third Colab T4 run (blob fcd83d4d) is named; no run-status sentence. Fails on PR #14 head 1196a33.
+    md = " ".join(_markdown().split())
+    for gone in ("about 7 to 7.5 minutes", "about 100 to 110 s", "about 110 to 120 s", "takes about 3 minutes",
+                 "No experiment run is recorded on a hosted runtime", "both recorded Colab T4 runs"):
+        assert gone not in md, gone
+    for quoted in ("413.7 s for blob `fcd83d4d`", "101.0 s", "111.2 s", "blobs `629e15bc` and `fcd83d4d`",
+                   "your run may take a different time"):
         assert quoted in md, quoted
