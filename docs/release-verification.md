@@ -165,6 +165,8 @@ they are measurements for the stated runtime, not general estimates.
 
 ## Current status
 
+**Pending (tier C review fixes, 2026-10-25):** `tutorials/table_transformer_structure_colab.ipynb` blob `629e15bc7232d46a97d39ac0cf35967a8b757d77`, generated at `0b01597` (T100-1..T100-5). It changes markdown, the use notice, `metadata.dimer` and the `NOTEBOOK_SOURCE` record only. Status **Candidate**; its hosted Colab T4 run is pending, and the runs below describe earlier blobs (REL14).
+
 **Candidate.** The 2026-09-19 Kaggle T4 run of `4c56fa0` / blob `4686cf7d` needed a manual restart after the install cell, so it is not a one-pass `Run all` and not promotion evidence (review finding TTS-M1), so the Release-grade label that rested on it is withdrawn. For the 2026-10-05 review-fix revision, the current blob `dea5747fafbe` (commit `c88210b`) completed one pass with no restart and 0 errors on a fresh Colab Tesla T4 on 2026-10-09 (Colab CLI sequential execution, 14/14 code cells, 448.0 s; isolated `uv` environment, 47 locked packages; test mAP@0.5 checkpoint 0.8873 / frozen 0.8630 / selected 0.8728, mAP 0.6352 / 0.7197 / 0.7255; reload parity exact). The REL12 BYOD journeys have not been run on a hosted runtime; until they are, the status stays Candidate. Any later change to the carried modules or to the notebook produces a new blob that needs its own recorded run.
 
 ## Supplemental table intelligence notebook — `tutorials/DIMER_Table_Intelligence_Workshop.ipynb`
