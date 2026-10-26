@@ -75,7 +75,8 @@ def test_tts_m1_carried_lock_is_the_committed_lock_and_pins_every_runtime_pin(no
 
 
 def test_tts_s5_declares_notebook_spec_2_2(notebook):
-    assert notebook["metadata"]["dimer"]["notebook_spec"] == "2.2"
+    assert notebook["metadata"]["dimer"]["notebook_spec"] == "2.5"
+    assert notebook["metadata"]["dimer"]["notebook_kind"] == "TUTORIAL"
 
 
 def test_tts_m1_routed_cells_use_the_worker_display_not_ipython(notebook):

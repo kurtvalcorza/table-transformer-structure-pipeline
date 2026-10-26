@@ -50,8 +50,8 @@ TEMPLATE = {
         "scores the held-out split by per-label AP@0.5 / AP@0.75 / AP, their class means and grid agreement with the selected "
         "model, renders structure before and after, exports the trained tensors as safetensors with a manifest, and reloads "
         "that artifact into a fresh pipeline to verify parity. The default path needs no repository clone, no DIMER worker or "
-        "service, no credential, no upload dialog and no configuration edit (NOTEBOOK_SPEC 2.0 §5). On CPU the whole path "
-        "takes about 3 minutes of model time after the install and the checkpoint download; a CUDA runtime is used "
+        "service, no credential, no upload dialog and no configuration edit (NOTEBOOK_SPEC 2.5 §5). On CPU the model stages "
+        "also run, more slowly (the local CPU pre-flight's per-stage timings are in the Prerequisites); a CUDA runtime is used "
         "automatically when present."
     ),
     "byod": (
@@ -125,14 +125,14 @@ TEMPLATE = {
         "carried module, no external matcher); the **unfrozen policy** continues by training the last decoder layers with "
         "them end to end, and the epoch with the lowest validation loss — which may be the untrained copied heads — is kept. The copied heads run a five-way softmax over the checkpoint's rows, so they are a restricted copy and not the untouched seven-way checkpoint: that checkpoint is scored beside the ladder by `evaluate_zero_shot` and is never selected by it, and selecting epoch 0 still exports the restricted heads. "
         "The checkpoint's own heads and `recognize` are never trained or exported. This corpus is close to the PubTables-1M "
-        "renders the model was trained on, so the adaptation question is not whether the model can learn the task but "
+        "renders the model was trained on (overlap note in the Prerequisites), so the adaptation question is not whether the model can learn the task but "
         "whether adapting to a new corpus and a new box convention buys anything the checkpoint does not already give — "
         "and what it costs. Nothing here is a quality claim about your tables: it is one seeded split of one small corpus."
     ),
     "guided": {
         "opening": [
             (
-                "**Who this notebook is for.** A learner who knows basic Python, has used Colab or Jupyter, and wants to see how a pretrained table-structure recogniser is adapted to a new corpus and box convention with a small labelled set — copied heads, trained heads on frozen features, and a bounded unfreeze — and how to tell from held-out numbers what adaptation bought and what it cost. No prior experience with DETR or fine-tuning is assumed; each term is explained where it first matters and again in the **Glossary** at the end. CPU is adequate (about three minutes of model time); a GPU is faster.\n\n**Input → Model → Output.**\n\n| | Recognition (checkpoint heads) | Adapted recognition | Bounded adaptation |\n|---|---|---|---|\n| Input | one table crop, sides 16..4,096 px, and a score threshold | one table crop | structure-labelled tables (50 training and 23 validation in the sample), split by paper |\n| Model | Table Transformer: ResNet-18 backbone, DETR encoder-decoder with 125 queries, six structure classes and *no object* | the same decoder with a restricted five-way class head and a copied box head | copied-head, frozen and unfrozen policies; validation loss chooses |\n| Output | labelled boxes (table, rows, columns, headers, spanning cells) with softmax scores — not calibrated | boxes for the four adapted labels | a safetensors adapter, and held-out per-label AP and grid agreement beside a grid prior and the zero-shot row |\n\n**How to use this notebook.** Choose a runtime (CPU works; a GPU is faster), then **Runtime → Run all**. Run all completes in one pass: Section 1 installs nothing into the notebook's own Python, so no restart is needed. Sections 1–3 are **infrastructure** — the isolated environment, the carried package (including the embedded tables) and the model snapshot — and their cells are collapsed; you may run them without studying them. The learning path starts in Section 4. Form fields (`# @param`) are the only values meant to be edited, and the defaults reproduce the recorded run. Before each principal result the notebook asks you to **Predict**; after it come **What to notice** and a collapsible **Check your reasoning** with a worked answer that names the run it quotes — the Kaggle T4 release run of 19 September 2026 or the CPU build record. Section 10 is a **change-one-thing experiment**, off by default. **Troubleshooting**, a **Glossary** and a **Conclusion** template are at the end. Writing your predictions down is optional.\n\n**Roadmap:** 1–3 infrastructure → 4 the embedded corpus, validation and a paper-level split *(evaluation practice)* → 5 the inference contract with reference boxes *(core concept: what a structure recogniser returns)* → 6 the grid prior, the zero-shot checkpoint and the frozen policy *(evaluation practice)* → 7 the unfrozen policy and validation selection *(core concept)* → 8 held-out evaluation → 9 structure before and after, export and reload *(engineering)* → 10 change one thing (optional) → conclude."
+                "**Who this notebook is for.** A learner who knows basic Python, has used Colab or Jupyter, and wants to see how a pretrained table-structure recogniser is adapted to a new corpus and box convention with a small labelled set — copied heads, trained heads on frozen features, and a bounded unfreeze — and how to tell from held-out numbers what adaptation bought and what it cost. No prior experience with DETR or fine-tuning is assumed; each term is explained where it first matters and again in the **Glossary** at the end. CPU is adequate (about three minutes of model time); a GPU is faster.\n\n**Input → Model → Output.**\n\n| | Recognition (checkpoint heads) | Adapted recognition | Bounded adaptation |\n|---|---|---|---|\n| Input | one table crop, sides 16..4,096 px, and a score threshold | one table crop | structure-labelled tables (50 training and 23 validation in the sample), split by paper |\n| Model | Table Transformer: ResNet-18 backbone, DETR encoder-decoder with 125 queries, six structure classes and *no object* | the same decoder with a restricted five-way class head and a copied box head | copied-head, frozen and unfrozen policies; validation loss chooses |\n| Output | labelled boxes (table, rows, columns, headers, spanning cells) with softmax scores — not calibrated | boxes for the four adapted labels | a safetensors adapter, and held-out per-label AP and grid agreement beside a grid prior and the zero-shot row |\n\n**How to use this notebook.** Choose a runtime (CPU works; a GPU is faster), then **Runtime → Run all**. Run all completes in one pass: Section 1 installs nothing into the notebook's own Python, so no restart is needed. Sections 1–3 are **infrastructure** — the isolated environment, the carried package (including the embedded tables) and the model snapshot — and their cells are collapsed; you may run them without studying them. The learning path starts in Section 4. Form fields (`# @param`) are the only values meant to be edited, and the defaults reproduce the recorded run. Before each principal result the notebook asks you to **Predict**; after it come **What to notice** and a collapsible **Check your reasoning** with a worked answer that names the run it quotes — the three recorded Colab T4 runs (blob `dea5747f`, commit `c88210b`, 2026-10-09, which printed the same numbers as the withdrawn Kaggle T4 run of blob `4686cf7d` on 2026-09-19; blobs `629e15bc`, commit `d9a12fa`, and `fcd83d4d`, commit `e11e293`, both 2026-10-25, which printed the same numbers as `dea5747f` apart from timing) or the local CPU pre-flight (commit `5d70d67`, blob `39b2b5fc`, 2026-09-19). Section 10 is a **change-one-thing experiment**, off by default. **Troubleshooting**, a **Glossary** and a **Conclusion** template are at the end. Writing your predictions down is optional.\n\n**Roadmap:** 1–3 infrastructure → 4 the embedded corpus, validation and a paper-level split *(evaluation practice)* → 5 the inference contract with reference boxes *(core concept: what a structure recogniser returns)* → 6 the grid prior, the zero-shot checkpoint and the frozen policy *(evaluation practice)* → 7 the unfrozen policy and validation selection *(core concept)* → 8 held-out evaluation → 9 structure before and after, export and reload *(engineering)* → 10 change one thing (optional) → conclude."
             )
         ]
     },
@@ -157,7 +157,13 @@ TEMPLATE = {
     ),
     "prerequisites": [
         "- **Learner:** basic Python and Colab or Jupyter familiarity; no prior experience with DETR or fine-tuning. The notebook explains DETR queries, the set loss with Hungarian matching and GIoU, per-label AP, grid agreement, the copied-head, frozen and unfrozen policies and the adapter where they are first used; the Glossary repeats them.",
-        "- **Runtime:** a fresh supported **Linux x86_64** runtime (Google Colab, Kaggle or Linux Jupyter). Section 1 builds its own Python 3.12.12 environment from a hash-locked list of manylinux wheels, so the kernel's own Python version does not matter and nothing is installed into it. The default path runs on CPU and uses CUDA automatically when available; float32 on both. The build record measured about 0.1 s per table to run the decoder on CPU (2 s for the 21-table zero-shot pass), about 45 s for the restricted heads including feature extraction and two validation passes, and about 15 s per unfreeze epoch over 50 tables plus a 23-table validation pass. The pinned `torch==2.14.0` install and the 115 MB checkpoint are the large downloads of the run; the tables travel inside the notebook.",
+        "- **Overlap with the training data:** the pinned checkpoint `microsoft/table-transformer-structure-recognition-v1.1-all` "
+        "was trained on PubTables-1M, tables from PubMed Central papers, and FinTabNet, tables from financial reports (model card, "
+        "[1], [2]). SciTSR-PD [3] takes its tables from arXiv LaTeX sources, a different collection, so no overlap is documented. A "
+        "paper posted to both arXiv and PubMed Central could still appear in both, rendered differently; the overlap is inferred to "
+        "be small, not verified (the training tables were not searched). The zero-shot numbers are therefore a measurement on similar, "
+        "possibly overlapping, material rather than on unseen documents.",
+        "- **Runtime:** a fresh supported **Linux x86_64** runtime (Google Colab, Kaggle or Linux Jupyter). Section 1 builds its own Python 3.12.12 environment from a hash-locked list of manylinux wheels, so the kernel's own Python version does not matter and nothing is installed into it. The default path runs on CPU and uses CUDA automatically when available; float32 on both. The local CPU pre-flight (commit `5d70d67`, blob `39b2b5fc`, 2026-09-19) measured about 0.1 s per table to run the decoder on CPU (2 s for the 21-table zero-shot pass), about 45 s for the restricted heads including feature extraction and two validation passes, and about 15 s per unfreeze epoch over 50 tables plus a 23-table validation pass. On a fresh Colab T4 the recorded one-pass runs took between 412.8 and 448.0 s for the whole notebook (448.0 s for blob `dea5747f` on 2026-10-09; 412.8 s for blob `629e15bc` and 413.7 s for blob `fcd83d4d` on 2026-10-25), the restricted heads 109.4 s, 100.4 s and 101.0 s and the unfreeze ladder 120.6 s, 110.6 s and 111.2 s; your run may take a different time. The pinned `torch==2.14.0` install and the 115 MB checkpoint are the large downloads of the run; the tables travel inside the notebook.",
         "- **Knowledge:** basic Python and PIL; what a bounding box in xyxy pixel coordinates is; what intersection-over-union and average precision measure and why AP does not depend on a score threshold; what a Hungarian (one-to-one) matching between predictions and references is; what validation-based selection among policies means; that a table's cell grid is the intersection of its row and column boxes.",
         "- **Data contract:** records are `{id, image, objects}` — a PIL image (or a path to one) with sides 16..4,096 px and a list of 1..125 `{label, box}` structure objects with `box` = `[x_min, y_min, x_max, y_max]` pixels inside the image (sides of at least 2 px), `label` among `table` (at most one), `table column`, `table row` (at least one each) and `table spanning cell`, ids matching `[A-Za-z0-9_.:-]{1,64}` and unique; a training set needs 8..2,000 records, so with the default 20 % + 20 % group hold-out the effective BYOD minimum is **12 tables in 12 groups** (`min_byod_records()` computes it); tables are de-duplicated by decoded-pixel digest and split by `group` / `paper_id` so one paper never straddles splits. BYOD accepts a `.zip` (or a directory) holding `structure.csv` and the image files, and requires a non-empty `group` on every row — the notebook's automatic split is group-disjoint only because the loader refuses ungrouped rows (`load_byod_dataset(..., require_group=False)` is the explicit opt-out, without that guarantee).",
         "- **Validation is structural, not semantic:** nothing checks that a box is a row or a column — a mislabelled set is trained on without complaint; the four labels are the checkpoint's own, so a BYOD set must use exactly those strings.",
@@ -280,7 +286,7 @@ TEMPLATE = {
                 "above `RECOGNITION_THRESHOLD` with their six-class labels, and `structure_summary` counts them into the grid "
                 "they imply. Because this table carries reference boxes, `evaluation_report` can for the first time return "
                 "**`sample-sanity`**: one `box_iou` entry per reference, matched only against detections of the same label, with "
-                "the reference and detected counts per label (the build record's probe table: every row, column and the table "
+                "the reference and detected counts per label (the local CPU pre-flight's probe table: every row, column and the table "
                 "matched at IoU 0.8 or better). A rendered preview (reference boxes in green, detections coloured by label) is "
                 "displayed. Read the header rows: the checkpoint may label the first row a `table column header` — a label the "
                 "reference set does not carry, which the adaptation vocabulary leaves out rather than penalises.\n\n"
@@ -342,7 +348,7 @@ TEMPLATE = {
         },
         {
             "md": (
-                "**What to notice:** the `box_iou` per reference, the implied grid against `reference_grid`, and whether a `table column header` appears.\n\n<details><summary>Check your reasoning</summary>Yes, mostly. In the local pre-flight record (19 September 2026, CPU) the probe table `test-000` (a 10 × 7 grid) gave `sample-sanity` with the table at IoU 0.93, rows 0.71–0.78 and columns 0.77–0.97, and an implied grid of 10 × 7. The checkpoint already recognises this kind of table; what it does not know is the derived box convention (rows tiled at the mid-gaps), which is why the row IoUs sit lower than the columns'.</details>"
+                "**What to notice:** the `box_iou` per reference, the implied grid against `reference_grid`, and whether a `table column header` appears.\n\n<details><summary>Check your reasoning</summary>Yes, mostly. In the local CPU pre-flight (commit `5d70d67`, blob `39b2b5fc`, 2026-09-19) the probe table `test-000` (a 10 × 7 grid) gave `sample-sanity` with the table at IoU 0.93, rows 0.71–0.78 and columns 0.77–0.97, and an implied grid of 10 × 7. The checkpoint already recognises this kind of table; what it does not know is the derived box convention (rows tiled at the mid-gaps), which is why the row IoUs sit lower than the columns'.</details>"
             ),
         },
         {
@@ -394,7 +400,7 @@ TEMPLATE = {
         },
         {
             "md": (
-                "**What to notice:** the three rows' mAP@0.5, AP@0.75 and mAP, the mean best IoU, the spanning-cell AP@0.5 and the grid agreement.\n\n<details><summary>Check your reasoning</summary>At mAP@0.5 the order is prior, then trained heads, then the untouched checkpoint; at AP@0.75 and mAP the heads overtake the checkpoint. In the Kaggle T4 release run (19 September 2026) the grid prior scored 38.68 % mAP@0.5 (grid agreement 4.76 %), the checkpoint 88.73 % / AP@0.75 73.39 % / mAP 63.52 % (spanning cells 74.8 %, grid agreement 85.71 %), and the frozen policy 86.30 % / 76.16 % / 71.97 % (spanning cells 60.16 %, grid agreement 80.95 %). Training the heads mostly moves the boxes onto the derived convention — mean best IoU 0.81 → 0.91 — at a cost on spanning cells and on grid agreement.</details>"
+                "**What to notice:** the three rows' mAP@0.5, AP@0.75 and mAP, the mean best IoU, the spanning-cell AP@0.5 and the grid agreement.\n\n<details><summary>Check your reasoning</summary>At mAP@0.5 the order is prior, then trained heads, then the untouched checkpoint; at AP@0.75 and mAP the heads overtake the checkpoint. In the three recorded Colab T4 runs (blob `dea5747f`, 2026-10-09; blobs `629e15bc` and `fcd83d4d`, 2026-10-25), which printed the same test scores, the grid prior scored 38.68 % mAP@0.5 (grid agreement 4.76 %), the checkpoint 88.73 % / AP@0.75 73.39 % / mAP 63.52 % (spanning cells 74.8 %, grid agreement 85.71 %), and the frozen policy 86.30 % / 76.16 % / 71.97 % (spanning cells 60.16 %, grid agreement 80.95 %). Training the heads mostly moves the boxes onto the derived convention — mean best IoU 0.81 → 0.91 — at a cost on spanning cells and on grid agreement.</details>"
             ),
         },
         {
@@ -411,9 +417,9 @@ TEMPLATE = {
                 "terms. Every epoch is scored on validation, and the epoch with the **lowest validation loss** is kept — the "
                 "checkpoint's own rows (epoch 0) and the heads alone (epoch 1) compete on equal terms, so the selected policy "
                 "can be any of the three. mAP@0.5, mAP and grid agreement are printed beside the loss at every epoch.\n\n"
-                "Watch the validation loss: in the build record it fell from 0.771 (copied rows, untrained) to 0.295 (heads), then "
-                "0.310 → 0.282 → 0.286 over three unfreeze epochs at 1e-4, so the second unfreeze epoch was selected; at "
-                "3e-4 the unfreeze never beat the heads (0.390 → 0.356 → 0.347) and the frozen policy was kept; with all six decoder layers unfrozen it reached 0.288 at the second unfreeze epoch (selected) for 85.6 % mAP@0.5 / 73.5 % mAP on the test split and a 38 MB adapter — no better than two layers. "
+                "Watch the validation loss: in the three recorded Colab T4 runs (blob `dea5747f`, 2026-10-09; blobs `629e15bc` and `fcd83d4d`, 2026-10-25) it fell from 0.771 (copied rows, untrained) to 0.279 (heads), then "
+                "0.276 → 0.303 → 0.284 over three unfreeze epochs at 1e-4, so the first unfreeze epoch was selected; in the local CPU pre-flight (commit `5d70d67`, blob `39b2b5fc`, 2026-09-19) the heads reached 0.295 and the unfreeze 0.310 → 0.282 → 0.286, so the second unfreeze epoch was selected there. Which unfreeze epoch wins can change from run to run. In build-time "
+                "CPU comparisons (not recorded runs), at 3e-4 the unfreeze never beat the heads (0.390 → 0.356 → 0.347) and the frozen policy was kept, and with all six decoder layers unfrozen the validation loss reached 0.288 at the second unfreeze epoch, above the CPU pre-flight default's 0.282, so validation already favoured two layers; that variant's test scores (85.6 % mAP@0.5 / 73.5 % mAP, 38 MB adapter) describe it but did not choose the default. "
                 "Note that DETR's train-mode dropout makes the per-table training loss sit above the full-batch head loss.\n\n"
                 "*Core concept.* Every call to `pipe.adapt` starts from the **pinned base**: decoder layers an earlier call (or "
                 "an artifact) changed are restored before the features are cached, so every policy starts from the checkpoint "
@@ -446,14 +452,14 @@ TEMPLATE = {
         },
         {
             "md": (
-                '**What to notice:** the validation loss per epoch, which epoch was selected, and whether the epoch with the lowest loss also has the highest validation mAP@0.5.\n\n<details><summary>Check your reasoning</summary>The trained heads, by a wide margin — and no, the two criteria disagree. In the local pre-flight record (19 September 2026, CPU) validation loss went 0.7705 (copied rows, untrained) → 0.2945 (heads) → 0.3104 → 0.2818 → 0.2860 over three unfreeze epochs, so the second unfreeze epoch (`best_epoch` 3) was kept, while validation mAP@0.5 was highest for the untrained copied rows (0.970, against 0.922–0.924 afterwards). The Kaggle T4 release run selected the same policy. The loss measures agreement with the derived box convention; mAP@0.5 mostly measures finding the objects at all.</details>'
+                '**What to notice:** the validation loss per epoch, which epoch was selected, and whether the epoch with the lowest loss also has the highest validation mAP@0.5.\n\n<details><summary>Check your reasoning</summary>The trained heads, by a wide margin — and no, the two criteria disagree. In the three recorded Colab T4 runs (blob `dea5747f`, 2026-10-09; blobs `629e15bc` and `fcd83d4d`, 2026-10-25) validation loss went 0.7705 (copied rows, untrained) → 0.2791 (heads) → 0.2762 → 0.3028 → 0.2842 over three unfreeze epochs, so the first unfreeze epoch (`best_epoch` 2) was kept, while validation mAP@0.5 was highest for the untrained copied rows (0.970, against 0.921–0.926 afterwards). The local CPU pre-flight (commit `5d70d67`, blob `39b2b5fc`, 2026-09-19) went 0.7705 → 0.2945 → 0.3104 → 0.2818 → 0.2860 and kept the second unfreeze epoch (`best_epoch` 3); every recorded run selected the same policy (this can vary between runs), the unfrozen last two decoder layers. The loss measures agreement with the derived box convention; mAP@0.5 mostly measures finding the objects at all.</details>'
             ),
         },
         {
             "md": (
                 "## 8. Held-out evaluation\n\n"
                 "The test split was never used for training or policy selection, and no paper in it appears in the training "
-                "or validation splits. The selected model is scored exactly as the frozen policy was in Section 6, and the "
+                "or validation splits (it is held out from this notebook's adaptation, not necessarily from the checkpoint's own training; see the overlap note). The selected model is scored exactly as the frozen policy was in Section 6, and the "
                 "four rows are put side by side: grid prior, zero-shot checkpoint, frozen policy, selected policy — per label "
                 "and as class means, with grid agreement and the set loss. Read the policy first: if validation kept the "
                 "heads, the last two rows are the same model; if it kept the untrained copied rows, the selected row is the "
@@ -520,7 +526,7 @@ TEMPLATE = {
         },
         {
             "md": (
-                '**What to notice:** the selected policy, the four rows on each metric, `delta_vs_zero_shot`, the spanning-cell row and the `verdicts`.\n\n<details><summary>Check your reasoning</summary>In the Kaggle T4 release run (19 September 2026) validation chose the unfrozen policy, which scored 87.28 % mAP@0.5 / 76.75 % AP@0.75 / 72.55 % mAP: below the untouched checkpoint at mAP@0.5 (88.73 %) but well above it at AP@0.75 and mAP (+3.4 and +9.0 points). Spanning-cell AP@0.5 fell from 74.8 % to 61.9 % and grid agreement from 85.7 % to 76.2 %. Adaptation bought agreement with the derived box convention and paid for it on the rarest label — 19 spanning cells in training — and on the structure-level question. The selection criterion (validation set loss) and the headline metric (mAP@0.5) disagree; the notebook reports both.</details>'
+                '**What to notice:** the selected policy, the four rows on each metric, `delta_vs_zero_shot`, the spanning-cell row and the `verdicts`.\n\n<details><summary>Check your reasoning</summary>In the three recorded Colab T4 runs (blob `dea5747f`, 2026-10-09; blobs `629e15bc` and `fcd83d4d`, 2026-10-25), which printed the same test scores, validation chose the unfrozen policy, which scored 87.28 % mAP@0.5 / 76.75 % AP@0.75 / 72.55 % mAP: below the untouched checkpoint at mAP@0.5 (88.73 %) but well above it at AP@0.75 and mAP (+3.4 and +9.0 points). Spanning-cell AP@0.5 fell from 74.8 % to 61.9 % and grid agreement from 85.7 % to 76.2 %. Adaptation bought agreement with the derived box convention and paid for it on the rarest label — 19 spanning cells in training — and on the structure-level question. The selection criterion (validation set loss) and the headline metric (mAP@0.5) disagree; the notebook reports both.</details>'
             ),
         },
         {
@@ -613,7 +619,7 @@ TEMPLATE = {
         },
         {
             "md": (
-                "**What to notice:** the `reference`, `frozen`, `selected` and `checkpoint` counts in `before_after`, the preview sheet, and the reload parity line.\n\n<details><summary>Check your reasoning</summary>Three tables cannot rank the policies: in the local pre-flight record all three tables' row and column counts matched the reference under every policy. Use the sheet to see *what* the recogniser does — where the rows sit, whether a spanning cell is found — not to choose a policy; that is Section 8's job on 21 tables. Reload parity held in the release run: identical (query, class) scores and boxes, and test mAP@0.5 0.8728 in memory and reloaded.</details>"
+                "**What to notice:** the `reference`, `frozen`, `selected` and `checkpoint` counts in `before_after`, the preview sheet, and the reload parity line.\n\n<details><summary>Check your reasoning</summary>Three tables cannot rank the policies: in the local CPU pre-flight all three tables' row and column counts matched the reference under every policy. Use the sheet to see *what* the recogniser does — where the rows sit, whether a spanning cell is found — not to choose a policy; that is Section 8's job on 21 tables. Reload parity held in the three recorded Colab T4 runs (`dea5747f`, `629e15bc`, `fcd83d4d`): identical (query, class) scores and boxes, and test mAP@0.5 0.8728 in memory and reloaded.</details>"
             ),
         },
         {
@@ -668,17 +674,18 @@ TEMPLATE = {
             "md": (
                 "**Observe → Explain.** Compare the two validation-loss curves, the `test` rows and the spanning-cell row.\n\n"
                 "<details><summary>Check your reasoning</summary>Epochs 0 and 1 of both runs are the copied rows and the trained "
-                "heads, so the two curves start from the same models. In the CPU build record all six layers reached validation "
-                "loss 0.288 at the second unfreeze epoch (selected) for 85.6 % mAP@0.5 / 73.5 % mAP on the test split, with a "
-                "38 MB adapter — no better than two layers. More capacity does not add spanning-cell examples: with 19 in "
-                "training, the rarest label stays the weak one. No experiment run is recorded on the release runtime; on 21 "
+                "heads, so the two curves start from the same models. In a build-time CPU comparison (not a recorded run) all six layers reached validation "
+                "loss 0.288 at the second unfreeze epoch (selected), against 0.282 for the default two layers in the CPU pre-flight, so the validation "
+                "loss already favoured the default; its test split scored 85.6 % mAP@0.5 / 73.5 % mAP with a 38 MB adapter, "
+                "quoted as a description only, not as the basis of the choice. More capacity does not add spanning-cell examples: with 19 in "
+                "training, the rarest label stays the weak one. On 21 "
                 "tables, read a difference of a point or two as noise.</details>"
             ),
         },
     ],
     "closing": (
         "## Interpretation and limits\n\n"
-        "On 21 held-out scientific tables, in the Kaggle T4 release run (19 September 2026), the grid prior scores 38.7 % "
+        "On 21 held-out scientific tables, in the three recorded Colab T4 runs (blob `dea5747f`, 2026-10-09; blobs `629e15bc` and `fcd83d4d`, 2026-10-25), which printed the same test scores, the grid prior scores 38.7 % "
         "mAP@0.5, the untouched checkpoint 88.7 % (mAP 63.5 %, grid agreement 85.7 %), the restricted heads trained on its "
         "frozen features 86.3 % (mAP 72.0 %), and the last two decoder layers unfrozen with them 87.3 % (mAP 72.6 %, AP@0.75 "
         "76.8 %), selected by validation loss; the adapter reloads to identical query scores. That is the claim and the finding: on a "
@@ -689,7 +696,7 @@ TEMPLATE = {
         "76.2 %). The ladder ran all three policies end to end on a "
         "real structure-labelled corpus with the set loss and an exact Hungarian matcher implemented in the open, chose "
         "among them on validation rather than by assumption — and the validation loss, which is a set loss under the "
-        "derived convention, preferred the trained heads to the copied checkpoint rows by a wide margin (0.295 vs 0.771) "
+        "derived convention, preferred the trained heads to the copied checkpoint rows by a wide margin (0.279 vs 0.771 in the three Colab T4 runs; 0.295 in the CPU pre-flight) "
         "while the checkpoint kept the higher mAP@0.5 on the test split: the selection criterion and the headline metric "
         "disagree, and the notebook reports both rather than hiding one.\n\n"
         "The test split is 21 tables with 300 structure objects from one seeded split of one small corpus with no dispersion "
@@ -717,12 +724,13 @@ TEMPLATE = {
         "threshold, or production fitness.\n\n"
         "**Optional experiments (off by default; each names its field and what to run):** Section 10 unfreezes all six "
         "decoder layers in its own pipeline and prints it beside the default run — change `EXPERIMENT_TRAINABLE_LAYERS`, "
-        "`EXPERIMENT_EPOCHS` or `EXPERIMENT_LEARNING_RATE` (at 3e-4 the build record's unfreeze never beat the heads on "
+        "`EXPERIMENT_EPOCHS` or `EXPERIMENT_LEARNING_RATE` (at 3e-4, in the same build-time comparison, the unfreeze never beat the heads on "
         "validation) there and run that cell again. Setting `EPOCHS = 0` or changing `HEAD_STEPS` / `TRAINABLE_LAYERS` / "
         "`LEARNING_RATE` and choosing **Run after** from Section 6 also starts from the pinned base — every `adapt` restores "
         "it first — but replaces the default results and exports. BYOD: `USE_BYOD` and `BYOD_PATH` in Section 4, then **Run "
         "after** from Section 4, and read the prior and the zero-shot row before any policy.\n\n"
         "## Troubleshooting\n\n"
+'- **Where the environment lives** — Section 1 builds it in a folder named `dimer_isolated_env_<lock digest>` in the working directory. Set the environment variable `DIMER_ISOLATED_ENV` before Section 1 to build it somewhere else.\n'
 '- **Section 1 stops with "This notebook needs a Linux x86_64 runtime"** — you are on Windows, macOS or an ARM machine. Use Google Colab, Kaggle or a Linux x86_64 Jupyter server.\n- **The uv wheel fails its size/SHA-256 check, or a download in Section 1 times out** — run Section 1 again; a complete environment is reused, an incomplete one is finished. If it repeats, the network is blocking or altering `files.pythonhosted.org` or `pypi.org`.\n- **"The isolated environment\'s Python process exited"** — usually out of memory. Restart the session and choose **Run all**; leave the optional experiment off on a small runtime.\n- **You re-ran Section 1 on its own** — nothing is lost: it keeps the running worker and every variable, so the cells after it keep working. After a session restart, run from the top.\n- **Section 3 reports a size or SHA-256 mismatch, or cannot reach the Hub** — the message names the file. Delete it from the snapshot folder Section 3 prints and run Section 3 again; the snapshot comes from `huggingface.co`.\n- **Section 4 reports a size or SHA-256 mismatch for an embedded table** — the notebook file was altered after download; open a fresh copy from the Colab link.\n- **Out of memory** — the model is small; restart the session and choose **Run all**, and leave Section 10 off on a small runtime.\n- **BYOD: "BYOD_PATH … does not exist"** — the path is relative to the working directory printed in the message.\n- **BYOD: "the upload dialog exists only in Google Colab"** — on Kaggle or Jupyter, put the zip in the runtime (or attach it as a dataset) and set `BYOD_PATH`.\n- **BYOD: "Upload exactly one .zip file"** — the dialog was cancelled or several files were chosen; run the cell again.\n- **BYOD: "structure.csv line N (file …): names an image that is not in the dataset"** — fix the `file` column of that row, or add the image to the zip.\n- **BYOD: "… has no `group`"** — every row needs the paper, document or source the table comes from.\n- **BYOD: a label outside the four** — use exactly `table`, `table column`, `table row` or `table spanning cell`.\n- **BYOD: "split leaves … supply at least 12 tables in as many groups"** — add tables or groups.\n'
         "## Glossary\n\n"
         "- **DETR query** — one of 125 learned slots the decoder fills with a box and a class distribution; most answer "
@@ -754,15 +762,12 @@ TEMPLATE = {
         "and grid agreement ___, so against the checkpoint it ___.\n"
         "- What I would need before claiming adaptation helps: ___ (for example more test tables, several seeds).\n\n"
         "## References\n\n"
-        "- Repository README: https://github.com/kurtvalcorza/table-transformer-structure-pipeline/blob/main/README.md\n"
-        "- Repository model card: https://github.com/kurtvalcorza/table-transformer-structure-pipeline/blob/main/MODEL_CARD.md\n"
-        "- Weight provenance: https://github.com/kurtvalcorza/table-transformer-structure-pipeline/blob/main/docs/WEIGHTS.md\n"
-        "- Upstream model: https://huggingface.co/{MODEL_ID}\n"
-        "- Upstream code: https://github.com/microsoft/table-transformer\n"
-        "- Aligning benchmark datasets for table structure recognition (Smock, Pesala, Abraham, 2023): https://arxiv.org/abs/2303.00716\n"
-        "- PubTables-1M (Smock, Pesala, Abraham, 2021): https://arxiv.org/abs/2110.00061\n"
-        "- End-to-End Object Detection with Transformers (DETR; the set loss and Hungarian matching, Carion et al., 2020): https://arxiv.org/abs/2005.12872\n"
-        "- SciTSR: Complicated Table Structure Recognition (Chi et al., 2019): https://arxiv.org/abs/1908.04729 — the public-domain subset SciTSR-PD: https://huggingface.co/datasets/bevaya/SciTSR-pd\n"
-        "- DIMER Notebook Specification 2.2 and Model Card Specification 1.1 (fleet specs in the ml-worker repository)"
+        "[1] B. Smock, R. Pesala, and R. Abraham, \"PubTables-1M: Towards comprehensive table extraction from unstructured documents,\" in *Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR)*, 2022. [Online]. Available: https://arxiv.org/abs/2110.00061\n\n"
+        "[2] B. Smock, R. Pesala, and R. Abraham, \"Aligning benchmark datasets for table structure recognition,\" in *Proc. Int. Conf. Document Anal. Recognit. (ICDAR)*, 2023. [Online]. Available: https://arxiv.org/abs/2303.00716\n\n"
+        "[3] Z. Chi *et al.*, \"Complicated table structure recognition,\" arXiv:1908.04729, 2019. [Online]. Available: https://arxiv.org/abs/1908.04729; public-domain subset SciTSR-PD: https://huggingface.co/datasets/bevaya/SciTSR-pd\n\n"
+        "[4] N. Carion *et al.*, \"End-to-end object detection with transformers,\" in *Proc. Eur. Conf. Comput. Vis. (ECCV)*, 2020. [Online]. Available: https://arxiv.org/abs/2005.12872\n\n"
+        "[5] Microsoft, \"table-transformer,\" GitHub repository; upstream checkpoint. [Online]. Available: https://github.com/microsoft/table-transformer, https://huggingface.co/{MODEL_ID}\n\n"
+        "[6] K. Valcorza, \"table-transformer-structure-pipeline,\" README and weight provenance. [Online]. Available: https://github.com/kurtvalcorza/table-transformer-structure-pipeline/blob/main/README.md, https://github.com/kurtvalcorza/table-transformer-structure-pipeline/blob/main/docs/WEIGHTS.md; model card: https://github.com/kurtvalcorza/table-transformer-structure-pipeline/blob/main/MODEL_CARD.md\n\n"
+        "[7] DIMER Notebook Specification 2.5 and Model Card Specification 1.1, fleet specs in the ml-worker repository."
     ),
 }
