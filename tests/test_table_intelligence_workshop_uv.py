@@ -110,7 +110,7 @@ def test_lock_file_pins_every_requirement_with_hashes():
     pins = dict(re.findall(r"^([A-Za-z0-9_.-]+)==(\S+)", text, re.M))
     # The exact versions of the former in-kernel install (section 4 PINS), unchanged.
     expected = {"torch": "2.14.0", "torchvision": "0.29.0", "torchaudio": "2.11.0", "transformers": "4.57.6",
-                "timm": "1.0.30", "safetensors": "0.8.0", "numpy": "2.5.3", "pillow": "11.3.0",
+                "timm": "1.0.30", "safetensors": "0.8.0", "numpy": "2.5.3", "pillow": "13.0.0",
                 "huggingface-hub": "0.36.2", "datasets": "4.1.1", "pyarrow": "25.0.1", "pandas": "2.2.3"}
     assert {k: pins.get(k) for k in expected} == expected
     assert dict(re.findall(r"^([A-Za-z0-9_.-]+)==(\S+)", REQUIREMENTS_IN.read_text(encoding="utf-8"), re.M)) == expected
